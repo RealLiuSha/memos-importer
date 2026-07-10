@@ -1,0 +1,17 @@
+.git
+.DS_Store
+gits
+goals
+plans
+webapp/node_modules
+webapp/dist
+bin
+tmp
+docs/poc-report*.md
+.env
+.env.*
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
