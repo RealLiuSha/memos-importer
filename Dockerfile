@@ -7,6 +7,10 @@ RUN cd webapp && npm run build
 
 FROM golang:1.25-alpine AS build
 WORKDIR /src
+# GOPROXY is overridable at build time; the server build passes goproxy.cn because
+# proxy.golang.org is unreliable from there. Plain `docker build` keeps the default.
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY:-https://proxy.golang.org,direct}
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .

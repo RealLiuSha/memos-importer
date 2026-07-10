@@ -58,6 +58,9 @@ docs/poc-report*.md
 /new-ui-demo/
 /cmd/poc/
 
+# Operational deploy/publish scripts (carry server host/key details; never published)
+/ops/
+
 # Screenshots and temporary artifacts
 *.png
 *.jpg
