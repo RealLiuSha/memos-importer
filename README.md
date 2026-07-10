@@ -1,50 +1,71 @@
+**English** | [简体中文](README_cn.md)
+
 # memos-importer
 
-memos-importer 是一个自托管的 Notion 到 memos 导入控制台。它以 Go 单二进制运行，内嵌 Web 界面，使用本地 SQLite 保存映射关系、附件记录和导入任务状态。memos / Notion 凭据默认保存在当前浏览器的 `localStorage`，不会写入后端 SQLite。
+memos-importer is a self-hosted console for importing Notion into
+[memos](https://github.com/usememos/memos). It runs as a single Go binary with the web UI
+embedded, and uses a local SQLite database to store mappings, attachment records, and
+import job state. memos / Notion credentials are kept in each browser's `localStorage` by
+default and are never written to the backend SQLite database.
 
-当前目标是把 Notion 页面或数据库条目导入到 memos 0.29.1+，并尽量保留原文档时间、正文结构和 Notion 托管附件。
+The current goal is to import Notion pages or database entries into memos 0.29.1+ while
+preserving the original document time, body structure, and Notion-hosted attachments as
+faithfully as possible.
 
-## 功能
+Hosted instance: <https://memos-importer.liusha.net>
 
-- 支持在浏览器本地保存并校验 memos endpoint、memos access token 和 Notion integration token。
-- 支持拉取 Notion integration 可访问的页面和数据库，并在 Web 界面中选择导入范围。
-- 支持预览单篇 Notion 文档转换后的 Markdown、附件数量和 unsupported block warning。
-- Notion 托管的 `image/file/pdf/video` 会先下载，再上传到 memos。
-- 导入后的正文使用 memos `/file/attachments/{uid}/{filename}` 路径，不依赖 Notion 临时文件 URL。
-- 导入 memo 时默认使用 Notion `created_time`，也支持 `last_edited_time` 或 `property:<Notion date property name>`。
-- 支持导入可见性选择：`PRIVATE`、`PROTECTED`、`PUBLIC`。
-- 支持重复导入策略：未变化内容自动跳过，变化内容可选择 `skip` 或 `overwrite`。
-- 导入任务异步执行，Web 界面可实时查看进度、历史、明细、失败原因和 warning。
-- 支持取消、断点续跑和失败项重试。
-- 不直连 memos 数据库，只通过 memos `/api/v1/*` API 写入数据。
+## Features
 
-## 非目标
+- Save and validate the memos endpoint, memos access token, and Notion integration token
+  locally in the browser.
+- Fetch the pages and databases the Notion integration can access, and pick the import
+  scope in the web UI.
+- Preview a single Notion document's converted Markdown, attachment count, and unsupported
+  block warnings.
+- Notion-hosted `image/file/pdf/video` attachments are downloaded first, then uploaded to
+  memos.
+- Imported bodies reference memos `/file/attachments/{uid}/{filename}` paths and never
+  depend on Notion's temporary file URLs.
+- Use Notion `created_time` for the memo time by default; `last_edited_time` and
+  `property:<Notion date property name>` are also supported.
+- Choose the import visibility: `PRIVATE`, `PROTECTED`, or `PUBLIC`.
+- Re-import policy: unchanged content is skipped automatically; changed content can be
+  `skip`ped or `overwrite`n.
+- Import jobs run asynchronously; the web UI shows live progress, history, per-item detail,
+  failure reasons, and warnings.
+- Cancel, resume, and retry failed items.
+- Never talks to the memos database directly — data is written only through the memos
+  `/api/v1/*` API.
 
-- 不兼容 memos 0.29.1 以前版本。
-- 不做双向同步、定时同步、多用户/多租户。
-- v1 只支持 Notion，不支持 Markdown 目录、Flomo 或其他数据源。
-- 不承诺完整还原所有 Notion block；不支持的 block 会以 warning 和可见占位保留。
-- 不实现全局限流器、令牌桶或优先级队列；只保留 worker 并发、请求超时、context cancellation 和 429/5xx bounded retry。
+## Non-goals
 
-## 本地运行
+- No compatibility with memos versions before 0.29.1.
+- No two-way sync, scheduled sync, or multi-user / multi-tenant support.
+- v1 supports Notion only — no Markdown directories, Flomo, or other data sources.
+- No promise to reproduce every Notion block; unsupported blocks are preserved as warnings
+  and visible placeholders.
+- No global rate limiter, token bucket, or priority queue — only worker concurrency,
+  request timeouts, context cancellation, and bounded 429/5xx retries.
+
+## Run locally
 
 ```bash
 go run ./cmd/server
 ```
 
-默认监听地址：
+Default listen address:
 
 ```text
 127.0.0.1:8080
 ```
 
-浏览器打开：
+Open in a browser:
 
 ```text
 http://127.0.0.1:8080
 ```
 
-## 环境变量
+## Environment variables
 
 ```bash
 MEMOS_IMPORTER_DB=memos-importer.db
@@ -58,78 +79,100 @@ MEMOS_IMPORTER_WORKERS=4
 MEMOS_IMPORTER_REQUEST_TIMEOUT=30s
 ```
 
-说明：
+- `MEMOS_IMPORTER_DB`: local SQLite path for mappings, attachment records, and import job
+  state.
+- `MEMOS_IMPORTER_LISTEN_ADDR`: HTTP listen address.
+- `MEMOS_IMPORTER_ACCESS_PASSWORD`: web console access password. **Required** when listening
+  on a non-loopback address.
+- `MEMOS_IMPORTER_MEMOS_ENDPOINT`: memos instance root, e.g. `https://memos.example.com`.
+  Addresses ending in `/api/v1` are also accepted.
+- `MEMOS_IMPORTER_MEMOS_TOKEN`: optional server-side default memos access token. Not
+  recommended for public or multi-user deployments.
+- `MEMOS_IMPORTER_NOTION_TOKEN`: optional server-side default Notion integration token. Not
+  recommended for public or multi-user deployments.
+- `MEMOS_IMPORTER_NOTION_TIME_SOURCE`: default time source — `created_time`,
+  `last_edited_time`, or `property:<Notion date property name>`.
+- `MEMOS_IMPORTER_WORKERS`: import worker concurrency.
+- `MEMOS_IMPORTER_REQUEST_TIMEOUT`: timeout for memos API, Notion API, and attachment
+  download requests.
 
-- `MEMOS_IMPORTER_DB`：本地 SQLite 数据库路径，用于保存映射关系、附件记录和导入任务状态。
-- `MEMOS_IMPORTER_LISTEN_ADDR`：HTTP 监听地址。
-- `MEMOS_IMPORTER_ACCESS_PASSWORD`：Web 控制台访问密码。监听非 loopback 地址时必须设置。
-- `MEMOS_IMPORTER_MEMOS_ENDPOINT`：memos 实例根地址，例如 `https://memos.example.com`。以 `/api/v1` 结尾的地址也会被兼容处理。
-- `MEMOS_IMPORTER_MEMOS_TOKEN`：可选的服务端默认 memos access token。公网或多人使用场景不建议设置。
-- `MEMOS_IMPORTER_NOTION_TOKEN`：可选的服务端默认 Notion integration token。公网或多人使用场景不建议设置。
-- `MEMOS_IMPORTER_NOTION_TIME_SOURCE`：默认时间来源，支持 `created_time`、`last_edited_time` 或 `property:<Notion date property name>`。
-- `MEMOS_IMPORTER_WORKERS`：导入 worker 并发数。
-- `MEMOS_IMPORTER_REQUEST_TIMEOUT`：memos API、Notion API 和附件下载请求超时时间。
-
-当服务监听 `0.0.0.0` 或其他非本机回环地址时，必须设置 `MEMOS_IMPORTER_ACCESS_PASSWORD`。Web 控制台会先加载访问密码面板，解锁后通过 HttpOnly same-origin session cookie 访问 API 和 SSE 进度流。脚本客户端也可以发送 `X-Memos-Importer-Password` 或 `Authorization: Bearer ...`。
+When the service listens on `0.0.0.0` or any non-loopback address, you **must** set
+`MEMOS_IMPORTER_ACCESS_PASSWORD`. The web console first loads an access-password panel; once
+unlocked, it reaches the API and SSE progress stream through an HttpOnly same-origin session
+cookie. Script clients may instead send `X-Memos-Importer-Password` or
+`Authorization: Bearer ...`.
 
 ## Docker
 
-仓库包含 Dockerfile，可用于构建本地镜像：
-
-```bash
-docker build -t memos-importer:local .
-```
-
-运行示例：
+The public image is `realliusha/memos-importer:latest`:
 
 ```bash
 docker run --rm \
   -p 8080:8080 \
   -v memos-importer-data:/data \
   -e MEMOS_IMPORTER_ACCESS_PASSWORD='change-me' \
+  -e MEMOS_IMPORTER_LISTEN_ADDR='0.0.0.0:8080' \
   -e MEMOS_IMPORTER_MEMOS_ENDPOINT='https://memos.example.com' \
-  memos-importer:local
+  realliusha/memos-importer:latest
 ```
 
-容器镜像默认将 SQLite 数据库放在 `/data/memos-importer.db`，建议挂载持久化 volume。打开 Web 控制台后，每个浏览器会把自己的 memos / Notion 配置保存到本地。更多 Docker Hub 用说明见 [README_docker.md](README_docker.md)。
+You can also build the image locally:
 
-## 构建
+```bash
+docker build -t memos-importer:local .
+```
+
+The container stores the SQLite database at `/data/memos-importer.db` by default — mount a
+persistent volume for it. After opening the web console, each browser saves its own memos /
+Notion configuration locally. See [README_docker.md](README_docker.md) for more Docker Hub
+usage notes.
+
+## Build
 
 ```bash
 make build
 ```
 
-该命令会先构建 Web 前端产物，再编译 `cmd/server`，输出到 `bin/memos-importer`。
+This builds the web frontend first, then compiles `cmd/server` into `bin/memos-importer`.
 
-## 验证
+## Verify
 
 ```bash
 make test
 make ui-smoke
 ```
 
-- `make test`：运行 Go 测试，并检查 importer 核心不依赖 Notion adapter。
-- `make ui-smoke`：构建 Web 前端，并用浏览器自动化走一遍控制台主流程。截图会写入 `tmp/ui-smoke.png` 和 `tmp/ui-smoke-mobile.png`。
+- `make test`: run the Go tests and check that the importer core does not depend on the
+  Notion adapter.
+- `make ui-smoke`: build the web frontend and drive the main console flow with browser
+  automation. Screenshots are written to `tmp/ui-smoke.png` and `tmp/ui-smoke-mobile.png`.
 
-## 真实端点验收
+## Acceptance against a real endpoint
 
-建议使用测试 memos 实例和测试 Notion 页面：
+Use a test memos instance and a test Notion page:
 
-1. 启动 `cmd/server`。
-2. 在 Web 控制台保存 memos 和 Notion 配置；配置会保存在当前浏览器本地。
-3. 执行配置校验，确认 memos 版本至少为 `0.29.1`。
-4. 导入一篇包含图片或文件的 Notion 页面。
-5. 确认导入任务状态为 `done`。
-6. 确认 memos 中创建的正文包含 `/file/attachments/{uid}/{filename}`。
-7. 确认正文不包含 Notion 临时文件 URL。
-8. 用 `skip` 和 `overwrite` 分别重复导入一次，确认不会创建重复 memo。
+1. Start `cmd/server`.
+2. Save the memos and Notion configuration in the web console; it is stored locally in the
+   current browser.
+3. Run configuration validation and confirm the memos version is at least `0.29.1`.
+4. Import a Notion page that contains an image or a file.
+5. Confirm the import job reaches state `done`.
+6. Confirm the created memo body contains `/file/attachments/{uid}/{filename}`.
+7. Confirm the body contains no Notion temporary file URLs.
+8. Re-import once with `skip` and once with `overwrite`, and confirm no duplicate memo is
+   created.
 
-不要把 token、原始私密正文、附件内容或 Notion 临时文件 URL 写入 issue、日志或文档。
+Do not write tokens, raw private bodies, attachment contents, or Notion temporary file URLs
+into issues, logs, or docs.
 
-## 安全注意事项
+## Security notes
 
-- Web 控制台保存按钮只写入当前浏览器 `localStorage`，不会把 token 持久化到后端 SQLite。
-- `GET /api/config` 不返回浏览器保存的 token；若部署者通过环境变量提供了服务端默认 token，也只返回脱敏值。
-- 错误响应会对 Authorization header、token、签名 URL 和账号密码形式的 URL 做脱敏。
-- 监听公网地址时必须设置访问密码。
-- 建议只在可信网络和可信浏览器中运行，并使用专用的 memos access token 和 Notion integration。
+- The web console save button only writes to the current browser's `localStorage`; it never
+  persists tokens to the backend SQLite database.
+- `GET /api/config` does not return browser-saved tokens; if the operator provides
+  server-side default tokens via environment variables, only redacted values are returned.
+- Error responses redact Authorization headers, tokens, signed URLs, and credential-bearing
+  URLs.
+- An access password is required when listening on a public address.
+- Run it only on trusted networks and trusted browsers, and use a dedicated memos access
+  token and Notion integration.

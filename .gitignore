@@ -61,6 +61,9 @@ docs/poc-report*.md
 # Operational deploy/publish scripts (carry server host/key details; never published)
 /ops/
 
+# Internal agent guidance (not part of the public repo)
+/CLAUDE.md
+
 # Screenshots and temporary artifacts
 *.png
 *.jpg
