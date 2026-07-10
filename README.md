@@ -71,6 +71,7 @@ http://127.0.0.1:8080
 MEMOS_IMPORTER_DB=memos-importer.db
 MEMOS_IMPORTER_LISTEN_ADDR=127.0.0.1:8080
 MEMOS_IMPORTER_ACCESS_PASSWORD=
+MEMOS_IMPORTER_ALLOW_NO_PASSWORD=false
 MEMOS_IMPORTER_MEMOS_ENDPOINT=http://127.0.0.1:5230
 MEMOS_IMPORTER_MEMOS_TOKEN=
 MEMOS_IMPORTER_NOTION_TOKEN=
@@ -83,7 +84,11 @@ MEMOS_IMPORTER_REQUEST_TIMEOUT=30s
   state.
 - `MEMOS_IMPORTER_LISTEN_ADDR`: HTTP listen address.
 - `MEMOS_IMPORTER_ACCESS_PASSWORD`: web console access password. **Required** when listening
-  on a non-loopback address.
+  on a non-loopback address, unless `MEMOS_IMPORTER_ALLOW_NO_PASSWORD` is set.
+- `MEMOS_IMPORTER_ALLOW_NO_PASSWORD`: set to `1`/`true` to allow starting on a non-loopback
+  address with no password. **Not recommended** — the entire API (import job history and
+  outbound fetches with caller-supplied endpoints/tokens) becomes reachable without
+  authentication. Leave unset for the safe default.
 - `MEMOS_IMPORTER_MEMOS_ENDPOINT`: memos instance root, e.g. `https://memos.example.com`.
   Addresses ending in `/api/v1` are also accepted.
 - `MEMOS_IMPORTER_MEMOS_TOKEN`: optional server-side default memos access token. Not
@@ -97,7 +102,8 @@ MEMOS_IMPORTER_REQUEST_TIMEOUT=30s
   download requests.
 
 When the service listens on `0.0.0.0` or any non-loopback address, you **must** set
-`MEMOS_IMPORTER_ACCESS_PASSWORD`. The web console first loads an access-password panel; once
+`MEMOS_IMPORTER_ACCESS_PASSWORD` (or explicitly opt into an open deployment with
+`MEMOS_IMPORTER_ALLOW_NO_PASSWORD=1`). The web console first loads an access-password panel; once
 unlocked, it reaches the API and SSE progress stream through an HttpOnly same-origin session
 cookie. Script clients may instead send `X-Memos-Importer-Password` or
 `Authorization: Bearer ...`.

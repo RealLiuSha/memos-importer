@@ -31,3 +31,16 @@ func TestValidateServerSecurityRequiresPasswordForNonLoopback(t *testing.T) {
 		t.Fatalf("expected password-protected non-loopback listener to be allowed: %v", err)
 	}
 }
+
+func TestAllowNoPasswordPermitsOpenNonLoopback(t *testing.T) {
+	cfg := config.Default()
+	cfg.ListenAddr = "0.0.0.0:8080"
+	cfg.AccessPassword = ""
+	cfg.AllowNoPassword = true
+	if err := cfg.ValidateServerSecurity(); err != nil {
+		t.Fatalf("expected opt-in no-password listener to be allowed: %v", err)
+	}
+	if !cfg.RunsOpen() {
+		t.Fatal("expected RunsOpen to report an open non-loopback listener")
+	}
+}

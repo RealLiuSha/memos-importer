@@ -26,6 +26,10 @@ func run() error {
 	if err := cfg.ValidateServerSecurity(); err != nil {
 		return err
 	}
+	if cfg.RunsOpen() {
+		log.Printf("WARNING: listening on %s with no access password; the entire API is "+
+			"reachable without authentication", cfg.ListenAddr)
+	}
 	ctx := context.Background()
 	st, err := store.Open(ctx, cfg.DatabasePath)
 	if err != nil {

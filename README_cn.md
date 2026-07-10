@@ -54,6 +54,7 @@ http://127.0.0.1:8080
 MEMOS_IMPORTER_DB=memos-importer.db
 MEMOS_IMPORTER_LISTEN_ADDR=127.0.0.1:8080
 MEMOS_IMPORTER_ACCESS_PASSWORD=
+MEMOS_IMPORTER_ALLOW_NO_PASSWORD=false
 MEMOS_IMPORTER_MEMOS_ENDPOINT=http://127.0.0.1:5230
 MEMOS_IMPORTER_MEMOS_TOKEN=
 MEMOS_IMPORTER_NOTION_TOKEN=
@@ -66,7 +67,8 @@ MEMOS_IMPORTER_REQUEST_TIMEOUT=30s
 
 - `MEMOS_IMPORTER_DB`：本地 SQLite 数据库路径，用于保存映射关系、附件记录和导入任务状态。
 - `MEMOS_IMPORTER_LISTEN_ADDR`：HTTP 监听地址。
-- `MEMOS_IMPORTER_ACCESS_PASSWORD`：Web 控制台访问密码。监听非 loopback 地址时必须设置。
+- `MEMOS_IMPORTER_ACCESS_PASSWORD`：Web 控制台访问密码。监听非 loopback 地址时必须设置，除非显式设置了 `MEMOS_IMPORTER_ALLOW_NO_PASSWORD`。
+- `MEMOS_IMPORTER_ALLOW_NO_PASSWORD`：设为 `1`/`true` 时，允许在非 loopback 地址上无密码启动。**不建议**——整个 API（导入任务历史，以及用调用方自带 endpoint/token 发起的外部请求）将无需鉴权即可访问。默认留空即为安全模式。
 - `MEMOS_IMPORTER_MEMOS_ENDPOINT`：memos 实例根地址，例如 `https://memos.example.com`。以 `/api/v1` 结尾的地址也会被兼容处理。
 - `MEMOS_IMPORTER_MEMOS_TOKEN`：可选的服务端默认 memos access token。公网或多人使用场景不建议设置。
 - `MEMOS_IMPORTER_NOTION_TOKEN`：可选的服务端默认 Notion integration token。公网或多人使用场景不建议设置。
@@ -74,7 +76,7 @@ MEMOS_IMPORTER_REQUEST_TIMEOUT=30s
 - `MEMOS_IMPORTER_WORKERS`：导入 worker 并发数。
 - `MEMOS_IMPORTER_REQUEST_TIMEOUT`：memos API、Notion API 和附件下载请求超时时间。
 
-当服务监听 `0.0.0.0` 或其他非本机回环地址时，必须设置 `MEMOS_IMPORTER_ACCESS_PASSWORD`。Web 控制台会先加载访问密码面板，解锁后通过 HttpOnly same-origin session cookie 访问 API 和 SSE 进度流。脚本客户端也可以发送 `X-Memos-Importer-Password` 或 `Authorization: Bearer ...`。
+当服务监听 `0.0.0.0` 或其他非本机回环地址时，必须设置 `MEMOS_IMPORTER_ACCESS_PASSWORD`（或用 `MEMOS_IMPORTER_ALLOW_NO_PASSWORD=1` 显式选择无密码开放部署）。Web 控制台会先加载访问密码面板，解锁后通过 HttpOnly same-origin session cookie 访问 API 和 SSE 进度流。脚本客户端也可以发送 `X-Memos-Importer-Password` 或 `Authorization: Bearer ...`。
 
 ## Docker
 
