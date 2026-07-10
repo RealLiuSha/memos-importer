@@ -104,27 +104,3 @@ func (s *Store) UpsertAttachmentMapping(ctx context.Context, m AttachmentMapping
 		m.Source, m.ExternalID, m.MemosAttachmentName, m.UID, m.Filename, m.MimeType, m.SizeBytes, formatTime(m.ImportedAt))
 	return err
 }
-
-func (s *Store) ListAttachmentMappings(ctx context.Context) ([]AttachmentMapping, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT source, external_id, memos_attachment_name, uid, filename, mime_type, size_bytes, imported_at
-		FROM attachment_mapping ORDER BY source, external_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var mappings []AttachmentMapping
-	for rows.Next() {
-		var m AttachmentMapping
-		var importedAt string
-		if err := rows.Scan(&m.Source, &m.ExternalID, &m.MemosAttachmentName, &m.UID, &m.Filename, &m.MimeType, &m.SizeBytes, &importedAt); err != nil {
-			return nil, err
-		}
-		t, err := scanTime(importedAt)
-		if err != nil {
-			return nil, err
-		}
-		m.ImportedAt = t
-		mappings = append(mappings, m)
-	}
-	return mappings, rows.Err()
-}

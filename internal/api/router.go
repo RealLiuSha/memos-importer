@@ -95,20 +95,12 @@ type memosRuntime interface {
 	ContentLengthLimit(ctx context.Context) (int64, error)
 }
 
-func (s *Server) newSource(ctx context.Context, cfg config.Config, options importer.Options) (source.Source, error) {
-	return s.sourceFunc(ctx, cfg, options)
-}
-
 func (s *Server) defaultSource(ctx context.Context, cfg config.Config, options importer.Options) (source.Source, error) {
 	timeSource := options.TimeSource
 	if timeSource == "" {
 		timeSource = cfg.NotionTimeSource
 	}
 	return notion.NewAdapter(cfg.NotionToken, timeSource, notion.WithAdapterRequestTimeout(cfg.RequestTimeout))
-}
-
-func (s *Server) newMemosClient(ctx context.Context, cfg config.Config) (memosRuntime, error) {
-	return s.memosFunc(ctx, cfg)
 }
 
 func (s *Server) defaultMemosClient(ctx context.Context, cfg config.Config) (memosRuntime, error) {

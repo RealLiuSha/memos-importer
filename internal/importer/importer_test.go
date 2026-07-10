@@ -201,6 +201,44 @@ func TestImportSanitizesAttachmentFilename(t *testing.T) {
 	}
 }
 
+func TestPrepareContentUsesSourceAttachmentSizeWhenUploadOmitsIt(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	token := "__MEMOS_IMPORTER_ATTACHMENT_size_fallback__"
+	doc := &domain.Document{
+		Ref:     domain.DocumentRef{Source: "notion", ID: "page-1", Title: "Page"},
+		Content: "file " + token,
+		Attachments: []domain.Attachment{{
+			Source: "notion", ExternalID: "block-1", Filename: "a.txt", MimeType: "text/plain", SizeBytes: 42, Token: token,
+			Open: func(ctx context.Context) (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("hello")), nil
+			},
+		}},
+	}
+	fm := &fakeMemos{attachmentResp: &memos.Attachment{
+		Name: "attachments/1", UID: "uid1", Filename: "a.txt", Type: "text/plain",
+	}}
+	engine := NewEngine(fakeSource{}, fm, st, NewBroker(), Options{})
+	_, attachments, err := engine.prepareContent(ctx, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attachments) != 1 || attachments[0].Size != 42 {
+		t.Fatalf("source attachment size fallback was not preserved: %#v", attachments)
+	}
+	mapping, err := st.GetAttachmentMapping(ctx, "notion", "block-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mapping.SizeBytes != 42 {
+		t.Fatalf("source attachment size was not persisted: %#v", mapping)
+	}
+}
+
 func TestCreateJobDeduplicatesExternalIDs(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "test.db"))

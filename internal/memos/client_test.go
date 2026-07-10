@@ -206,6 +206,9 @@ func TestVersionCompare(t *testing.T) {
 	if compareVersion("v0.30.0", "0.29.1") <= 0 {
 		t.Fatal("v0.30.0 should be higher than 0.29.1")
 	}
+	if compareVersion("0.29.1-dev", "0.29.1") != 0 {
+		t.Fatal("version parsing should stop at the first non-digit suffix")
+	}
 }
 
 func TestTraceRedactsSensitiveFields(t *testing.T) {

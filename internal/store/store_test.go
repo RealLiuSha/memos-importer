@@ -52,15 +52,9 @@ func TestConfigAndMappings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if am.UID != "u1" || am.Filename != "a.png" {
+	if am.MemosAttachmentName != "attachments/1" || am.UID != "u1" || am.Filename != "a.png" ||
+		am.MimeType != "image/png" || am.SizeBytes != 12 || am.ImportedAt.IsZero() {
 		t.Fatalf("unexpected attachment mapping: %#v", am)
-	}
-	attachments, err := s.ListAttachmentMappings(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(attachments) != 1 || attachments[0].MemosAttachmentName != "attachments/1" {
-		t.Fatalf("unexpected attachment mappings: %#v", attachments)
 	}
 }
 

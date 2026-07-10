@@ -15,7 +15,7 @@ func (s *Server) notionTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	src, err := s.newSource(r.Context(), cfg, importer.Options{})
+	src, err := s.sourceFunc(r.Context(), cfg, importer.Options{})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -34,7 +34,7 @@ func (s *Server) previewNotionDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	src, err := s.newSource(r.Context(), cfg, importer.Options{})
+	src, err := s.sourceFunc(r.Context(), cfg, importer.Options{})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -50,7 +50,7 @@ func (s *Server) previewNotionDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	content := importer.ComposeContent(doc)
 	limit := int64(0)
-	if client, err := s.newMemosClient(r.Context(), cfg); err == nil {
+	if client, err := s.memosFunc(r.Context(), cfg); err == nil {
 		limit, _ = client.ContentLengthLimit(r.Context())
 	}
 	contentLength := int64(len([]byte(content)))

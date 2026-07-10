@@ -3,13 +3,9 @@ package importer
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -300,94 +296,6 @@ func (e *Engine) processItem(ctx context.Context, jobID string, item store.Impor
 	return nil
 }
 
-func (e *Engine) prepareContent(ctx context.Context, doc *domain.Document) (string, []memos.Attachment, error) {
-	content := ComposeContent(doc)
-	replacements := make(map[string]string)
-	memoAttachments := make([]memos.Attachment, 0, len(doc.Attachments))
-	seenTokens := make(map[string]bool)
-	for _, attachment := range doc.Attachments {
-		if attachment.Token == "" {
-			return "", nil, fmt.Errorf("attachment %s has empty token", attachment.ExternalID)
-		}
-		if seenTokens[attachment.Token] {
-			return "", nil, fmt.Errorf("duplicate attachment token %s", attachment.Token)
-		}
-		seenTokens[attachment.Token] = true
-		if !strings.Contains(content, attachment.Token) {
-			return "", nil, fmt.Errorf("attachment token %s not found in content", attachment.Token)
-		}
-		mapping, err := e.store.GetAttachmentMapping(ctx, attachment.Source, attachment.ExternalID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			return "", nil, err
-		}
-		if mapping == nil {
-			uploaded, err := e.uploadAttachment(ctx, attachment)
-			if err != nil {
-				return "", nil, err
-			}
-			if uploaded.Name == "" {
-				return "", nil, fmt.Errorf("memos attachment response missing name for %s", attachment.ExternalID)
-			}
-			mapping = &store.AttachmentMapping{
-				Source:              attachment.Source,
-				ExternalID:          attachment.ExternalID,
-				MemosAttachmentName: uploaded.Name,
-				UID:                 uploaded.UID,
-				Filename:            sanitizeAttachmentFilename(firstNonEmpty(uploaded.Filename, attachment.Filename)),
-				MimeType:            firstNonEmpty(uploaded.Type, attachment.MimeType),
-				SizeBytes:           firstPositive(uploaded.Size, attachment.SizeBytes),
-				ImportedAt:          time.Now().UTC(),
-			}
-			if mapping.UID == "" {
-				mapping.UID = attachmentUIDFromName(mapping.MemosAttachmentName)
-			}
-			if mapping.UID == "" {
-				return "", nil, fmt.Errorf("memos attachment response missing uid for %s", attachment.ExternalID)
-			}
-			if err := e.store.UpsertAttachmentMapping(ctx, *mapping); err != nil {
-				return "", nil, err
-			}
-		}
-		replacements[attachment.Token] = memos.AttachmentFilePath(mapping.UID, mapping.Filename)
-		memoAttachments = append(memoAttachments, memos.Attachment{
-			Name:     mapping.MemosAttachmentName,
-			UID:      mapping.UID,
-			Filename: mapping.Filename,
-			Type:     mapping.MimeType,
-			Size:     mapping.SizeBytes,
-		})
-	}
-	for token, replacement := range replacements {
-		content = strings.ReplaceAll(content, token, replacement)
-	}
-	for token := range seenTokens {
-		if strings.Contains(content, token) {
-			return "", nil, fmt.Errorf("attachment token %s was not replaced", token)
-		}
-	}
-	return content, memoAttachments, nil
-}
-
-func (e *Engine) uploadAttachment(ctx context.Context, attachment domain.Attachment) (*memos.Attachment, error) {
-	if attachment.Open == nil {
-		return nil, fmt.Errorf("attachment %s cannot be opened", attachment.ExternalID)
-	}
-	rc, err := attachment.Open(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	data, err := readBounded(rc, e.options.MaxAttachmentBytes)
-	if err != nil {
-		return nil, err
-	}
-	return e.memos.CreateAttachment(ctx, memos.CreateAttachmentRequest{
-		Filename: sanitizeAttachmentFilename(attachment.Filename),
-		Type:     attachment.MimeType,
-		Content:  data,
-	})
-}
-
 func (e *Engine) failItem(ctx context.Context, jobID string, item store.ImportItem, stage string, err error) error {
 	item.Status = "failed"
 	item.ErrorStage = stage
@@ -416,50 +324,6 @@ func (e *Engine) publish(event Event) {
 	e.broker.Publish(event)
 }
 
-// ComposeContent renders the memo body exactly as the importer sends it before attachment token replacement.
-func ComposeContent(doc *domain.Document) string {
-	var b strings.Builder
-	title := strings.TrimSpace(doc.Ref.Title)
-	if title != "" {
-		b.WriteString("# ")
-		b.WriteString(title)
-		b.WriteString("\n\n")
-	}
-	b.WriteString(strings.TrimSpace(doc.Content))
-	if len(doc.Tags) > 0 {
-		b.WriteString("\n\n")
-		for i, tag := range doc.Tags {
-			if i > 0 {
-				b.WriteByte(' ')
-			}
-			b.WriteByte('#')
-			b.WriteString(sanitizeTag(tag))
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func contentHash(content string, attachments []memos.Attachment) string {
-	h := sha256.New()
-	h.Write([]byte(content))
-	for _, attachment := range attachments {
-		h.Write([]byte("\x00"))
-		h.Write([]byte(attachment.Name))
-		h.Write([]byte(attachment.UID))
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func documentUnchanged(mapping *store.DocumentMapping, doc *domain.Document, hash string) bool {
-	if mapping == nil || mapping.ContentHash != hash {
-		return false
-	}
-	if doc.UpdatedAt.IsZero() || mapping.SourceUpdatedAt.IsZero() {
-		return true
-	}
-	return !doc.UpdatedAt.After(mapping.SourceUpdatedAt)
-}
-
 func marshalWarnings(warnings []domain.Warning) string {
 	if len(warnings) == 0 {
 		return "[]"
@@ -471,70 +335,11 @@ func marshalWarnings(warnings []domain.Warning) string {
 	return string(data)
 }
 
-func readBounded(r io.Reader, limit int64) ([]byte, error) {
-	if limit <= 0 {
-		limit = 32 << 20
-	}
-	lr := &io.LimitedReader{R: r, N: limit + 1}
-	data, err := io.ReadAll(lr)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("attachment exceeds size limit %d bytes", limit)
-	}
-	return data, nil
-}
-
 func sanitizeError(err error) string {
 	if err == nil {
 		return ""
 	}
 	return redact.Short(err.Error(), 512)
-}
-
-func sanitizeTag(tag string) string {
-	tag = strings.TrimSpace(strings.TrimPrefix(tag, "#"))
-	tag = strings.NewReplacer(" ", "_", "\t", "_", "\n", "_").Replace(tag)
-	if tag == "" {
-		return "untagged"
-	}
-	return tag
-}
-
-func sanitizeAttachmentFilename(filename string) string {
-	filename = strings.ReplaceAll(strings.TrimSpace(filename), "\\", "/")
-	filename = path.Base(filename)
-	filename = strings.ReplaceAll(filename, "\x00", "")
-	if filename == "" || filename == "." || filename == "/" || filename == ".." {
-		return "attachment"
-	}
-	return filename
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func firstPositive(values ...int64) int64 {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return 0
-}
-
-func attachmentUIDFromName(name string) string {
-	if i := strings.LastIndex(name, "/"); i >= 0 && i < len(name)-1 {
-		return name[i+1:]
-	}
-	return name
 }
 
 func newID() string {

@@ -60,7 +60,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	client, err := s.newMemosClient(r.Context(), cfg)
+	client, err := s.memosFunc(r.Context(), cfg)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -73,7 +73,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	src, err := s.newSource(r.Context(), cfg, req.Options)
+	src, err := s.sourceFunc(r.Context(), cfg, req.Options)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -196,7 +196,7 @@ func (s *Server) engineForStoredJob(ctx context.Context, jobID string, cfg confi
 	if err := validateNotionOptions(&options); err != nil {
 		return nil, err
 	}
-	client, err := s.newMemosClient(ctx, cfg)
+	client, err := s.memosFunc(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func (s *Server) engineForStoredJob(ctx context.Context, jobID string, cfg confi
 	if err := ensureContentLengthLimit(ctx, client, &options); err != nil {
 		return nil, err
 	}
-	src, err := s.newSource(ctx, cfg, options)
+	src, err := s.sourceFunc(ctx, cfg, options)
 	if err != nil {
 		return nil, err
 	}

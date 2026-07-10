@@ -59,14 +59,14 @@ func (s *Server) verifyConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	memosClient, err := s.newMemosClient(r.Context(), cfg)
+	memosClient, err := s.memosFunc(r.Context(), cfg)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	profile, memosErr := memosClient.VerifyMinVersion(r.Context(), "0.29.1")
 	limit, limitErr := memosClient.ContentLengthLimit(r.Context())
-	notionAdapter, notionCreateErr := s.newSource(r.Context(), cfg, importer.Options{TimeSource: cfg.NotionTimeSource})
+	notionAdapter, notionCreateErr := s.sourceFunc(r.Context(), cfg, importer.Options{TimeSource: cfg.NotionTimeSource})
 	var notionErr error
 	if notionCreateErr != nil {
 		notionErr = notionCreateErr

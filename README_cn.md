@@ -1,6 +1,6 @@
 # memos-importer
 
-这是中文 README 的镜像文件，内容与 [README.md](README.md) 保持一致，方便部分平台或文档站点按语言文件名识别。
+这是供部分平台或文档站点按语言文件名识别的中文快速说明；完整行为、安全与验收说明以 [README.md](README.md) 为准。
 
 memos-importer 是一个自托管的 Notion 到 memos 导入控制台。它以 Go 单二进制运行，内嵌 Web 界面，使用本地 SQLite 保存映射关系、附件记录和导入任务状态。memos / Notion 凭据默认保存在当前浏览器的 `localStorage`，不会写入后端 SQLite。
 

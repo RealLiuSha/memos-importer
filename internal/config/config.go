@@ -10,16 +10,6 @@ import (
 	"time"
 )
 
-const (
-	KeyMemosEndpoint    = "memos_endpoint"
-	KeyMemosToken       = "memos_token"
-	KeyNotionToken      = "notion_token"
-	KeyListenAddr       = "listen_addr"
-	KeyAccessPassword   = "access_password"
-	KeyDatabasePath     = "database_path"
-	KeyNotionTimeSource = "notion_time_source"
-)
-
 type Config struct {
 	MemosEndpoint    string        `json:"memos_endpoint"`
 	MemosToken       string        `json:"memos_token,omitempty"`
