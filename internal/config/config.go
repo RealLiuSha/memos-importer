@@ -39,12 +39,10 @@ func Default() Config {
 }
 
 func (c Config) ValidateServerSecurity() error {
-	host, _, err := net.SplitHostPort(c.ListenAddr)
+	nonLoopback, err := isNonLoopbackListenAddr(c.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("invalid listen address: %w", err)
 	}
-	ip := net.ParseIP(host)
-	nonLoopback := host != "localhost" && (ip == nil || !ip.IsLoopback())
 	if nonLoopback && c.AccessPassword == "" && !c.AllowNoPassword {
 		return fmt.Errorf("access password is required when listening on non-loopback address %q "+
 			"(set MEMOS_IMPORTER_ACCESS_PASSWORD, or MEMOS_IMPORTER_ALLOW_NO_PASSWORD=1 to run fully open)", c.ListenAddr)
@@ -55,13 +53,20 @@ func (c Config) ValidateServerSecurity() error {
 // RunsOpen reports whether the server will listen on a non-loopback address with no access
 // password, i.e. the whole API is reachable without authentication.
 func (c Config) RunsOpen() bool {
-	host, _, err := net.SplitHostPort(c.ListenAddr)
+	nonLoopback, err := isNonLoopbackListenAddr(c.ListenAddr)
 	if err != nil {
 		return false
 	}
-	ip := net.ParseIP(host)
-	nonLoopback := host != "localhost" && (ip == nil || !ip.IsLoopback())
 	return nonLoopback && c.AccessPassword == ""
+}
+
+func isNonLoopbackListenAddr(addr string) (bool, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, err
+	}
+	ip := net.ParseIP(host)
+	return host != "localhost" && (ip == nil || !ip.IsLoopback()), nil
 }
 
 func (c Config) NormalizedMemosEndpoint() (string, error) {

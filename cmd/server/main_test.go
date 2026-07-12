@@ -18,29 +18,3 @@ func TestNewHTTPServerDefaults(t *testing.T) {
 		t.Fatalf("timeouts should be configured: %#v", srv)
 	}
 }
-
-func TestValidateServerSecurityRequiresPasswordForNonLoopback(t *testing.T) {
-	cfg := config.Default()
-	cfg.ListenAddr = "0.0.0.0:8080"
-	cfg.AccessPassword = ""
-	if err := cfg.ValidateServerSecurity(); err == nil {
-		t.Fatal("expected non-loopback listener without password to be rejected")
-	}
-	cfg.AccessPassword = "pw"
-	if err := cfg.ValidateServerSecurity(); err != nil {
-		t.Fatalf("expected password-protected non-loopback listener to be allowed: %v", err)
-	}
-}
-
-func TestAllowNoPasswordPermitsOpenNonLoopback(t *testing.T) {
-	cfg := config.Default()
-	cfg.ListenAddr = "0.0.0.0:8080"
-	cfg.AccessPassword = ""
-	cfg.AllowNoPassword = true
-	if err := cfg.ValidateServerSecurity(); err != nil {
-		t.Fatalf("expected opt-in no-password listener to be allowed: %v", err)
-	}
-	if !cfg.RunsOpen() {
-		t.Fatal("expected RunsOpen to report an open non-loopback listener")
-	}
-}

@@ -22,14 +22,6 @@ type Client struct {
 
 type Option func(*Client)
 
-func WithHTTPClient(client *http.Client) Option {
-	return func(c *Client) {
-		if client != nil {
-			c.httpClient = client
-		}
-	}
-}
-
 func WithRequestTimeout(timeout time.Duration) Option {
 	return func(c *Client) {
 		if timeout > 0 {

@@ -44,7 +44,7 @@ func TestCreateJobRejectsOldMemosVersionBeforeSource(t *testing.T) {
 	if sourceCalled {
 		t.Fatal("source should not be created after unsupported memos version")
 	}
-	jobs, err := st.ListJobs(context.Background(), 10)
+	jobs, err := st.ListJobsWithSummary(context.Background(), 10)
 	if err != nil {
 		t.Fatal(err)
 	}

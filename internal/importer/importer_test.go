@@ -425,7 +425,7 @@ func TestImportFailureIsolationAndRetry(t *testing.T) {
 	}
 	statuses := map[string]string{}
 	for _, item := range items {
-		statuses[item.ExternalID] = item.Status
+		statuses[item.ExternalID] = string(item.Status)
 	}
 	if statuses["page-ok"] != "imported" || statuses["page-fail"] != "failed" {
 		t.Fatalf("unexpected statuses: %#v", statuses)

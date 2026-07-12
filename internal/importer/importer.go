@@ -69,12 +69,12 @@ func (e *Engine) CreateJob(ctx context.Context, externalIDs []string) (string, e
 		if title == "" {
 			title = id
 		}
-		items = append(items, store.ImportItem{ExternalID: id, Title: title, Status: "pending", Warnings: "[]"})
+		items = append(items, store.ImportItem{ExternalID: id, Title: title, Status: store.ItemStatusPending, Warnings: "[]"})
 	}
 	if err := e.store.CreateJob(ctx, store.Job{
 		ID:        jobID,
 		Source:    e.source.Name(),
-		Status:    "pending",
+		Status:    store.JobStatusPending,
 		Options:   string(optionsJSON),
 		CreatedAt: time.Now().UTC(),
 	}, items); err != nil {
@@ -100,16 +100,16 @@ func uniqueExternalIDs(externalIDs []string) []string {
 
 func (e *Engine) RunJob(ctx context.Context, jobID string) error {
 	if e.optionsErr != nil {
-		_ = e.store.UpdateJobStatus(ctx, jobID, "failed", e.optionsErr.Error())
+		_ = e.store.UpdateJobStatus(ctx, jobID, store.JobStatusFailed, e.optionsErr.Error())
 		return e.optionsErr
 	}
-	if err := e.store.UpdateJobStatus(ctx, jobID, "running", ""); err != nil {
+	if err := e.store.UpdateJobStatus(ctx, jobID, store.JobStatusRunning, ""); err != nil {
 		return err
 	}
 	e.publish(Event{JobID: jobID, Type: "job_running"})
 	items, err := e.store.PendingItems(ctx, jobID)
 	if err != nil {
-		_ = e.store.UpdateJobStatus(context.Background(), jobID, "failed", err.Error())
+		_ = e.store.UpdateJobStatus(context.Background(), jobID, store.JobStatusFailed, err.Error())
 		return err
 	}
 	jobs := make(chan store.ImportItem)
@@ -144,7 +144,7 @@ func (e *Engine) RunJob(ctx context.Context, jobID string) error {
 		case <-ctx.Done():
 			close(jobs)
 			wg.Wait()
-			_ = e.store.UpdateJobStatus(context.Background(), jobID, "canceled", ctx.Err().Error())
+			_ = e.store.UpdateJobStatus(context.Background(), jobID, store.JobStatusCanceled, ctx.Err().Error())
 			e.publish(Event{JobID: jobID, Type: "job_canceled", Payload: ctx.Err().Error()})
 			return ctx.Err()
 		case jobs <- item:
@@ -153,16 +153,16 @@ func (e *Engine) RunJob(ctx context.Context, jobID string) error {
 	close(jobs)
 	wg.Wait()
 	if ctx.Err() != nil {
-		_ = e.store.UpdateJobStatus(context.Background(), jobID, "canceled", ctx.Err().Error())
+		_ = e.store.UpdateJobStatus(context.Background(), jobID, store.JobStatusCanceled, ctx.Err().Error())
 		e.publish(Event{JobID: jobID, Type: "job_canceled", Payload: ctx.Err().Error()})
 		return ctx.Err()
 	}
 	if failures > 0 {
-		_ = e.store.UpdateJobStatus(ctx, jobID, "failed", fmt.Sprintf("%d item(s) failed", failures))
+		_ = e.store.UpdateJobStatus(ctx, jobID, store.JobStatusFailed, fmt.Sprintf("%d item(s) failed", failures))
 		e.publish(Event{JobID: jobID, Type: "job_failed", Payload: failures})
 		return nil
 	}
-	_ = e.store.UpdateJobStatus(ctx, jobID, "done", "")
+	_ = e.store.UpdateJobStatus(ctx, jobID, store.JobStatusDone, "")
 	e.publish(Event{JobID: jobID, Type: "job_done"})
 	return nil
 }
@@ -189,7 +189,7 @@ func (e *Engine) RetryFailed(ctx context.Context, jobID string) error {
 }
 
 func (e *Engine) processItem(ctx context.Context, jobID string, item store.ImportItem) error {
-	item.Status = "running"
+	item.Status = store.ItemStatusRunning
 	item.Error = ""
 	item.ErrorStage = ""
 	_ = e.store.UpdateItem(ctx, item)
@@ -232,7 +232,7 @@ func (e *Engine) processItem(ctx context.Context, jobID string, item store.Impor
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return e.failItem(ctx, jobID, item, "mapping", err)
 	}
-	status := "imported"
+	status := store.ItemStatusImported
 	var memoID string
 	if mapping == nil {
 		memo, err := e.memos.CreateMemo(ctx, memos.CreateMemoRequest{Memo: memos.Memo{
@@ -251,7 +251,7 @@ func (e *Engine) processItem(ctx context.Context, jobID string, item store.Impor
 		}
 		memoID = memo.Name
 	} else if documentUnchanged(mapping, doc, hash) {
-		status = "skipped"
+		status = store.ItemStatusSkipped
 		memoID = mapping.MemoID
 	} else if e.options.Strategy == StrategyOverwrite {
 		memo, err := e.memos.UpdateMemo(ctx, mapping.MemoID, memos.UpdateMemoRequest{
@@ -263,16 +263,16 @@ func (e *Engine) processItem(ctx context.Context, jobID string, item store.Impor
 			}
 			return e.failItem(ctx, jobID, item, "update_memo", err)
 		}
-		status = "overwritten"
+		status = store.ItemStatusOverwritten
 		memoID = memo.Name
 		if memoID == "" {
 			memoID = mapping.MemoID
 		}
 	} else {
-		status = "skipped"
+		status = store.ItemStatusSkipped
 		memoID = mapping.MemoID
 	}
-	if status == "imported" || status == "overwritten" {
+	if status == store.ItemStatusImported || status == store.ItemStatusOverwritten {
 		if err := e.store.UpsertDocumentMapping(ctx, store.DocumentMapping{
 			Source:          e.source.Name(),
 			ExternalID:      doc.Ref.ID,
@@ -292,12 +292,12 @@ func (e *Engine) processItem(ctx context.Context, jobID string, item store.Impor
 	if err := e.store.UpdateItem(ctx, item); err != nil {
 		return err
 	}
-	e.publish(Event{JobID: jobID, Type: "item_" + status, ExternalID: item.ExternalID, Payload: item})
+	e.publish(Event{JobID: jobID, Type: "item_" + string(status), ExternalID: item.ExternalID, Payload: item})
 	return nil
 }
 
 func (e *Engine) failItem(ctx context.Context, jobID string, item store.ImportItem, stage string, err error) error {
-	item.Status = "failed"
+	item.Status = store.ItemStatusFailed
 	item.ErrorStage = stage
 	item.Error = sanitizeError(err)
 	if item.Warnings == "" {
@@ -309,7 +309,7 @@ func (e *Engine) failItem(ctx context.Context, jobID string, item store.ImportIt
 }
 
 func (e *Engine) cancelItem(ctx context.Context, jobID string, item store.ImportItem, err error) error {
-	item.Status = "pending"
+	item.Status = store.ItemStatusPending
 	item.ErrorStage = ""
 	item.Error = ""
 	if item.Warnings == "" {

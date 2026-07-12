@@ -6,10 +6,20 @@ import (
 	"time"
 )
 
+type JobStatus string
+
+const (
+	JobStatusPending  JobStatus = "pending"
+	JobStatusRunning  JobStatus = "running"
+	JobStatusDone     JobStatus = "done"
+	JobStatusFailed   JobStatus = "failed"
+	JobStatusCanceled JobStatus = "canceled"
+)
+
 type Job struct {
 	ID         string     `json:"id"`
 	Source     string     `json:"source"`
-	Status     string     `json:"status"`
+	Status     JobStatus  `json:"status"`
 	Options    string     `json:"options"`
 	CreatedAt  time.Time  `json:"created_at"`
 	StartedAt  *time.Time `json:"started_at,omitempty"`
@@ -32,18 +42,6 @@ type JobSummary struct {
 type JobWithSummary struct {
 	Job
 	Summary JobSummary `json:"summary"`
-}
-
-type ImportItem struct {
-	JobID      string    `json:"job_id"`
-	ExternalID string    `json:"external_id"`
-	Title      string    `json:"title"`
-	Status     string    `json:"status"`
-	Warnings   string    `json:"warnings"`
-	ErrorStage string    `json:"error_stage,omitempty"`
-	Error      string    `json:"error,omitempty"`
-	MemoID     string    `json:"memo_id,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 func (s *Store) CreateJob(ctx context.Context, job Job, items []ImportItem) error {
@@ -76,15 +74,15 @@ func (s *Store) CreateJob(ctx context.Context, job Job, items []ImportItem) erro
 	return tx.Commit()
 }
 
-func (s *Store) UpdateJobStatus(ctx context.Context, id, status, errText string) error {
+func (s *Store) UpdateJobStatus(ctx context.Context, id string, status JobStatus, errText string) error {
 	now := nowUTC()
 	switch status {
-	case "running":
+	case JobStatusRunning:
 		_, err := s.db.ExecContext(ctx, `UPDATE import_job
 			SET status = ?, started_at = ?, finished_at = NULL, error = ?
 			WHERE id = ?`, status, now, errText, id)
 		return err
-	case "done", "failed", "canceled":
+	case JobStatusDone, JobStatusFailed, JobStatusCanceled:
 		_, err := s.db.ExecContext(ctx, `UPDATE import_job
 			SET status = ?, finished_at = ?, error = ?
 			WHERE id = ?`, status, now, errText, id)
@@ -113,32 +111,6 @@ func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 		return nil, err
 	}
 	return &job, nil
-}
-
-func (s *Store) ListJobs(ctx context.Context, limit int) ([]Job, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 100
-	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, source, status, options, created_at, started_at, finished_at, COALESCE(error, '')
-		FROM import_job ORDER BY created_at DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var jobs []Job
-	for rows.Next() {
-		var job Job
-		var createdAt string
-		var startedAt, finishedAt sql.NullString
-		if err := rows.Scan(&job.ID, &job.Source, &job.Status, &job.Options, &createdAt, &startedAt, &finishedAt, &job.Error); err != nil {
-			return nil, err
-		}
-		if err := parseJobTimes(&job, createdAt, startedAt, finishedAt); err != nil {
-			return nil, err
-		}
-		jobs = append(jobs, job)
-	}
-	return jobs, rows.Err()
 }
 
 func (s *Store) ListJobsWithSummary(ctx context.Context, limit int) ([]JobWithSummary, error) {
@@ -185,121 +157,26 @@ func (s *Store) ListJobsWithSummary(ctx context.Context, limit int) ([]JobWithSu
 	return jobs, rows.Err()
 }
 
-func (s *Store) ListItems(ctx context.Context, jobID string) ([]ImportItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT job_id, external_id, title, status, warnings,
-		COALESCE(error_stage, ''), COALESCE(error, ''), COALESCE(memo_id, ''), updated_at
-		FROM import_item WHERE job_id = ? ORDER BY title, external_id`, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ImportItem
-	for rows.Next() {
-		var item ImportItem
-		var updatedAt string
-		if err := rows.Scan(&item.JobID, &item.ExternalID, &item.Title, &item.Status, &item.Warnings, &item.ErrorStage, &item.Error, &item.MemoID, &updatedAt); err != nil {
-			return nil, err
-		}
-		t, err := scanTime(updatedAt)
-		if err != nil {
-			return nil, err
-		}
-		item.UpdatedAt = t
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
 func SummarizeItems(items []ImportItem) JobSummary {
 	var summary JobSummary
 	for _, item := range items {
 		summary.Total++
 		switch item.Status {
-		case "pending":
+		case ItemStatusPending:
 			summary.Pending++
-		case "running":
+		case ItemStatusRunning:
 			summary.Running++
-		case "imported":
+		case ItemStatusImported:
 			summary.Imported++
-		case "overwritten":
+		case ItemStatusOverwritten:
 			summary.Overwritten++
-		case "skipped":
+		case ItemStatusSkipped:
 			summary.Skipped++
-		case "failed":
+		case ItemStatusFailed:
 			summary.Failed++
 		}
 	}
 	return finalizeJobSummary(summary)
-}
-
-func (s *Store) UpdateItem(ctx context.Context, item ImportItem) error {
-	if item.UpdatedAt.IsZero() {
-		item.UpdatedAt = time.Now().UTC()
-	}
-	if item.Warnings == "" {
-		item.Warnings = "[]"
-	}
-	_, err := s.db.ExecContext(ctx, `UPDATE import_item
-		SET title = ?, status = ?, warnings = ?, error_stage = ?, error = ?, memo_id = ?, updated_at = ?
-		WHERE job_id = ? AND external_id = ?`,
-		item.Title, item.Status, item.Warnings, item.ErrorStage, item.Error, item.MemoID, formatTime(item.UpdatedAt), item.JobID, item.ExternalID)
-	return err
-}
-
-func (s *Store) PendingItems(ctx context.Context, jobID string) ([]ImportItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT job_id, external_id, title, status, warnings,
-		COALESCE(error_stage, ''), COALESCE(error, ''), COALESCE(memo_id, ''), updated_at
-		FROM import_item WHERE job_id = ? AND status IN ('pending', 'running') ORDER BY title, external_id`, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanItems(rows)
-}
-
-func (s *Store) FailedItems(ctx context.Context, jobID string) ([]ImportItem, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT job_id, external_id, title, status, warnings,
-		COALESCE(error_stage, ''), COALESCE(error, ''), COALESCE(memo_id, ''), updated_at
-		FROM import_item WHERE job_id = ? AND status = 'failed' ORDER BY title, external_id`, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	return scanItems(rows)
-}
-
-func (s *Store) ResetItems(ctx context.Context, jobID string, externalIDs []string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, id := range externalIDs {
-		if _, err := tx.ExecContext(ctx, `UPDATE import_item
-			SET status = 'pending', error_stage = NULL, error = NULL, updated_at = ?
-			WHERE job_id = ? AND external_id = ?`, nowUTC(), jobID, id); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func scanItems(rows *sql.Rows) ([]ImportItem, error) {
-	var items []ImportItem
-	for rows.Next() {
-		var item ImportItem
-		var updatedAt string
-		if err := rows.Scan(&item.JobID, &item.ExternalID, &item.Title, &item.Status, &item.Warnings, &item.ErrorStage, &item.Error, &item.MemoID, &updatedAt); err != nil {
-			return nil, err
-		}
-		t, err := scanTime(updatedAt)
-		if err != nil {
-			return nil, err
-		}
-		item.UpdatedAt = t
-		items = append(items, item)
-	}
-	return items, rows.Err()
 }
 
 func parseJobTimes(job *Job, createdAt string, startedAt, finishedAt sql.NullString) error {

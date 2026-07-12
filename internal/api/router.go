@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -149,11 +148,4 @@ func bearerToken(header string) string {
 		return header[len(prefix):]
 	}
 	return ""
-}
-
-func requestTimeoutContext(r *http.Request, timeout time.Duration) (context.Context, context.CancelFunc) {
-	if timeout <= 0 {
-		return context.WithCancel(r.Context())
-	}
-	return context.WithTimeout(r.Context(), timeout)
 }

@@ -29,14 +29,6 @@ type Client struct {
 
 type ClientOption func(*Client)
 
-func WithHTTPClient(client *http.Client) ClientOption {
-	return func(c *Client) {
-		if client != nil {
-			c.httpClient = client
-		}
-	}
-}
-
 func WithBaseURL(baseURL string) ClientOption {
 	return func(c *Client) {
 		if baseURL != "" {
