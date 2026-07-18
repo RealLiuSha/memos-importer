@@ -302,9 +302,17 @@ async function main() {
     await evalJS(cdp, click("[data-testid='verify-config']"));
     await waitFor(cdp, "document.body.innerText.includes('v0.29.1') && document.body.innerText.includes('limit 4096')", "config verify");
 
+    await waitFor(cdp, "document.querySelector('[data-testid=\"document-limit\"]')?.value === '100'", "default document limit");
+    await evalJS(cdp, setInput("[data-testid='document-limit']", "3"));
     await evalJS(cdp, click("[data-testid='load-documents']"));
     await waitFor(cdp, "!!document.querySelector('[data-testid=\"doc-page-1\"]')", "document list");
     await waitFor(cdp, "document.body.innerText.includes('数据库') || document.body.innerText.includes('database')", "document kind badge");
+    await waitFor(cdp, `
+      (() => {
+        const ids = Array.from(document.querySelectorAll('.doc-row input')).map((input) => input.dataset.testid);
+        return ids.join(',') === 'doc-page-1,doc-db-1,doc-page-child';
+      })()
+    `, "document updated-time order");
     await waitFor(cdp, `
       (() => {
         const parent = document.querySelector('[data-testid="doc-page-1"]')?.closest('.doc-row')?.querySelector('.doc-title');

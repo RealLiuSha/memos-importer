@@ -18,7 +18,8 @@ import (
 func TestNotionTreeAndPreviewExposeWarnings(t *testing.T) {
 	st := openAPIStore(t)
 	s := NewServer(st, config.Default())
-	src := fakeAPISource{docs: map[string]*domain.Document{
+	var listOptions source.ListOptions
+	src := fakeAPISource{listOptions: &listOptions, listHasMore: true, docs: map[string]*domain.Document{
 		"page-1": {
 			Ref:       domain.DocumentRef{Source: "notion", ID: "page-1", Title: "Page", UpdatedAt: time.Now()},
 			Content:   "<!-- Unsupported Notion block: synced_block -->",
@@ -40,6 +41,9 @@ func TestNotionTreeAndPreviewExposeWarnings(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "page-1") {
 		t.Fatalf("unexpected tree response %d: %s", rec.Code, rec.Body.String())
 	}
+	if listOptions.Limit != defaultNotionDocumentLimit || !strings.Contains(rec.Body.String(), `"has_more":true`) {
+		t.Fatalf("tree did not use the default limit or expose has_more: options=%#v body=%s", listOptions, rec.Body.String())
+	}
 	rec = httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sources/notion/documents/page-1/preview", nil))
 	if rec.Code != http.StatusOK {
@@ -47,6 +51,40 @@ func TestNotionTreeAndPreviewExposeWarnings(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "unsupported_block") || !strings.Contains(rec.Body.String(), "Unsupported Notion block") {
 		t.Fatalf("preview did not expose warning/placeholder: %s", rec.Body.String())
+	}
+}
+
+func TestNotionTreeValidatesDocumentLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		wantStatus int
+		wantLimit  int
+	}{
+		{name: "custom", query: "?limit=250", wantStatus: http.StatusOK, wantLimit: 250},
+		{name: "zero", query: "?limit=0", wantStatus: http.StatusBadRequest},
+		{name: "negative", query: "?limit=-1", wantStatus: http.StatusBadRequest},
+		{name: "non integer", query: "?limit=many", wantStatus: http.StatusBadRequest},
+		{name: "over maximum", query: "?limit=1001", wantStatus: http.StatusBadRequest},
+		{name: "empty", query: "?limit=", wantStatus: http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := openAPIStore(t)
+			s := NewServer(st, config.Default())
+			var options source.ListOptions
+			s.sourceFunc = func(ctx context.Context, cfg config.Config, importerOptions importer.Options) (source.Source, error) {
+				return fakeAPISource{docs: map[string]*domain.Document{}, listOptions: &options}, nil
+			}
+			rec := httptest.NewRecorder()
+			s.Router().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/sources/notion/tree"+tt.query, nil))
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("unexpected status %d: %s", rec.Code, rec.Body.String())
+			}
+			if options.Limit != tt.wantLimit {
+				t.Fatalf("unexpected list options: %#v", options)
+			}
+		})
 	}
 }
 

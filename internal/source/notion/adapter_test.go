@@ -3,6 +3,7 @@ package notion
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"memos-importer/internal/source"
 )
 
 func TestAdapterFetchDocument(t *testing.T) {
@@ -74,28 +77,52 @@ func TestAdapterListDocumentsPaginationAndDatabase(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/search" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.String())
 		}
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := body["filter"]; ok {
+			t.Fatalf("document search should combine pages and databases: %#v", body)
+		}
+		sortBody, _ := body["sort"].(map[string]interface{})
+		if sortBody["direction"] != "descending" || sortBody["timestamp"] != "last_edited_time" {
+			t.Fatalf("missing last-edited descending sort: %#v", body)
+		}
 		call := atomic.AddInt32(&searchCalls, 1)
 		switch call {
 		case 1:
+			if body["page_size"] != float64(3) {
+				t.Fatalf("unexpected first page size: %#v", body)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"results": []interface{}{map[string]interface{}{
-					"id": "page-1", "object": "page", "last_edited_time": "2024-01-02T00:00:00Z",
-					"properties": map[string]interface{}{
-						"Name": map[string]interface{}{"type": "title", "title": []interface{}{map[string]interface{}{"plain_text": "Page 1"}}},
+				"results": []interface{}{
+					map[string]interface{}{
+						"id": "page-1", "object": "page", "last_edited_time": "2024-01-02T00:00:00Z",
+						"properties": map[string]interface{}{
+							"Name": map[string]interface{}{"type": "title", "title": []interface{}{map[string]interface{}{"plain_text": "Page 1"}}},
+						},
 					},
-				}},
+					map[string]interface{}{
+						"id": "db-1", "object": "database", "last_edited_time": "2024-01-03T00:00:00Z",
+						"title": []interface{}{map[string]interface{}{"plain_text": "Database"}},
+					},
+				},
 				"has_more":    true,
 				"next_cursor": "cursor-2",
 			})
 		case 2:
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"results": []interface{}{}, "has_more": false})
-		case 3:
+			if body["page_size"] != float64(1) || body["start_cursor"] != "cursor-2" {
+				t.Fatalf("unexpected second page request: %#v", body)
+			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"results": []interface{}{map[string]interface{}{
-					"id": "db-1", "object": "database", "last_edited_time": "2024-01-03T00:00:00Z",
-					"title": []interface{}{map[string]interface{}{"plain_text": "Database"}},
+					"id": "page-2", "object": "page", "last_edited_time": "2024-01-04T00:00:00Z",
+					"properties": map[string]interface{}{
+						"Name": map[string]interface{}{"type": "title", "title": []interface{}{map[string]interface{}{"plain_text": "Page 2"}}},
+					},
 				}},
-				"has_more": false,
+				"has_more":    true,
+				"next_cursor": "cursor-3",
 			})
 		default:
 			t.Fatalf("unexpected search call %d", call)
@@ -110,15 +137,57 @@ func TestAdapterListDocumentsPaginationAndDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refs, err := adapter.ListDocuments(context.Background())
+	list, err := adapter.ListDocuments(context.Background(), source.ListOptions{Limit: 3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refs) != 2 {
-		t.Fatalf("expected 2 refs, got %#v", refs)
+	if len(list.Documents) != 3 || !list.HasMore || searchCalls != 2 {
+		t.Fatalf("expected a limited result with more pages, got %#v calls=%d", list, searchCalls)
 	}
-	if refs[0].Title != "Page 1" || refs[1].Title != "Database" || refs[1].Kind != "database" {
-		t.Fatalf("unexpected refs: %#v", refs)
+	refs := list.Documents
+	if refs[0].ID != "page-2" || refs[1].ID != "db-1" || refs[2].ID != "page-1" || refs[1].Kind != "database" {
+		t.Fatalf("documents were not sorted by updated_at descending: %#v", refs)
+	}
+}
+
+func TestAdapterListDocumentsCapsEachSearchPageAtOneHundred(t *testing.T) {
+	var pageSizes []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		pageSize := int(body["page_size"].(float64))
+		pageSizes = append(pageSizes, pageSize)
+		results := make([]interface{}, 0, pageSize)
+		for i := 0; i < pageSize; i++ {
+			id := fmt.Sprintf("page-%03d-%03d", len(pageSizes), i)
+			results = append(results, map[string]interface{}{
+				"id": id, "object": "page", "last_edited_time": "2024-01-02T00:00:00Z",
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"results": results, "has_more": true, "next_cursor": fmt.Sprintf("cursor-%d", len(pageSizes)+1),
+		})
+	}))
+	defer server.Close()
+	client, err := NewClient("token", WithBaseURL(server.URL), WithMaxRetries(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, err := NewAdapter("token", "created_time", WithClient(client))
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := adapter.ListDocuments(context.Background(), source.ListOptions{Limit: 250})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprint(pageSizes); got != "[100 100 50]" {
+		t.Fatalf("unexpected search page sizes: %s", got)
+	}
+	if len(list.Documents) != 250 || !list.HasMore {
+		t.Fatalf("unexpected limited result: len=%d has_more=%v", len(list.Documents), list.HasMore)
 	}
 }
 

@@ -115,7 +115,7 @@ func TestJobCreateCancelRetryAndSSE(t *testing.T) {
 	}
 
 	router := s.Router()
-	body := bytes.NewBufferString(`{"source":"notion","external_ids":["page-1"],"options":{"worker_count":1}}`)
+	body := bytes.NewBufferString(`{"source":"notion","external_ids":["page-1"],"title_by_id":{"page-1":"Page hint"},"options":{"worker_count":1}}`)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/jobs", body))
 	if rec.Code != http.StatusAccepted {
@@ -133,6 +133,13 @@ func TestJobCreateCancelRetryAndSSE(t *testing.T) {
 	case <-runStarted:
 	case <-time.After(time.Second):
 		t.Fatal("runner did not start")
+	}
+	initialItems, err := st.ListItems(context.Background(), jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(initialItems) != 1 || initialItems[0].Title != "Page hint" {
+		t.Fatalf("create job did not retain the selected document title hint: %#v", initialItems)
 	}
 
 	events, cancel := s.broker.Subscribe(jobID)

@@ -40,8 +40,8 @@ export function verifyImporterConfig(config: ConfigPayload): Promise<VerifyRespo
   });
 }
 
-export function fetchNotionDocuments(config: ConfigPayload): Promise<{ documents: DocumentRef[] }> {
-  return request("/api/sources/notion/tree", {
+export function fetchNotionDocuments(config: ConfigPayload, limit: number): Promise<{ documents: DocumentRef[]; has_more?: boolean }> {
+  return request(`/api/sources/notion/tree?limit=${encodeURIComponent(limit)}`, {
     method: "POST",
     body: JSON.stringify({ config }),
   });
@@ -56,6 +56,7 @@ export function fetchNotionPreview(id: string, config: ConfigPayload): Promise<P
 
 export function createImportJob(
   externalIDs: string[],
+  titleByID: Record<string, string>,
   config: ConfigPayload,
   options: ImportOptions,
 ): Promise<{ job_id: string }> {
@@ -64,6 +65,7 @@ export function createImportJob(
     body: JSON.stringify({
       source: "notion",
       external_ids: externalIDs,
+      title_by_id: titleByID,
       config,
       options,
     }),

@@ -44,7 +44,7 @@ func NewEngine(src source.Source, memosClient MemosClient, st *store.Store, brok
 	}
 }
 
-func (e *Engine) CreateJob(ctx context.Context, externalIDs []string) (string, error) {
+func (e *Engine) CreateJob(ctx context.Context, externalIDs []string, titleByID map[string]string) (string, error) {
 	if e.optionsErr != nil {
 		return "", e.optionsErr
 	}
@@ -57,16 +57,10 @@ func (e *Engine) CreateJob(ctx context.Context, externalIDs []string) (string, e
 	if err != nil {
 		return "", err
 	}
-	titleByID := make(map[string]string)
-	if refs, err := e.source.ListDocuments(ctx); err == nil {
-		for _, ref := range refs {
-			titleByID[ref.ID] = ref.Title
-		}
-	}
 	items := make([]store.ImportItem, 0, len(externalIDs))
 	for _, id := range externalIDs {
 		title := titleByID[id]
-		if title == "" {
+		if strings.TrimSpace(title) == "" {
 			title = id
 		}
 		items = append(items, store.ImportItem{ExternalID: id, Title: title, Status: store.ItemStatusPending, Warnings: "[]"})

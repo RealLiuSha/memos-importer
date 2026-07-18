@@ -50,31 +50,19 @@ function buildTimeSource(mode: TimeSourceMode, property: string): string {
   return mode;
 }
 
-function arrangeDocuments(docs: DocumentRef[]): DisplayDocument[] {
+function decorateDocuments(docs: DocumentRef[]): DisplayDocument[] {
   const byID = new Map(docs.map((doc) => [doc.id, doc]));
-  const children = new Map<string, DocumentRef[]>();
-  const roots: DocumentRef[] = [];
-  for (const doc of docs) {
-    if (doc.parent_id && byID.has(doc.parent_id)) {
-      const list = children.get(doc.parent_id) || [];
-      list.push(doc);
-      children.set(doc.parent_id, list);
-    } else {
-      roots.push(doc);
+  return docs.map((doc) => {
+    let depth = 0;
+    let parentID = doc.parent_id;
+    const seen = new Set([doc.id]);
+    while (parentID && byID.has(parentID) && !seen.has(parentID)) {
+      seen.add(parentID);
+      depth += 1;
+      parentID = byID.get(parentID)?.parent_id;
     }
-  }
-  const sortRefs = (items: DocumentRef[]) => items.sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id) || a.id.localeCompare(b.id));
-  const arranged: DisplayDocument[] = [];
-  const seen = new Set<string>();
-  const visit = (doc: DocumentRef, depth: number) => {
-    if (seen.has(doc.id)) return;
-    seen.add(doc.id);
-    arranged.push({ ...doc, depth });
-    for (const child of sortRefs([...(children.get(doc.id) || [])])) visit(child, depth + 1);
-  };
-  for (const doc of sortRefs([...roots])) visit(doc, 0);
-  for (const doc of sortRefs(docs.filter((doc) => !seen.has(doc.id)))) visit(doc, 0);
-  return arranged;
+    return { ...doc, depth };
+  });
 }
 
 function descendantsOf(docs: DocumentRef[], id: string): string[] {
@@ -113,6 +101,8 @@ function App() {
   const [showSavedToast, setShowSavedToast] = useState(false);
   const [documents, setDocuments] = useState<DocumentRef[]>([]);
   const [docsLoadState, setDocsLoadState] = useState<"idle" | "loading" | "loaded">("idle");
+  const [documentLimit, setDocumentLimit] = useState("100");
+  const [documentsHasMore, setDocumentsHasMore] = useState(false);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [previewID, setPreviewID] = useState<string | null>(null);
@@ -136,12 +126,12 @@ function App() {
 
   const visibleDocuments = useMemo(() => {
     const normalized = search.trim().toLowerCase();
-    const filtered = normalized
-      ? documents.filter((doc) => [doc.title, doc.id, doc.kind, doc.parent_id]
+    const decorated = decorateDocuments(documents);
+    return normalized
+      ? decorated.filter((doc) => [doc.title, doc.id, doc.kind, doc.parent_id]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(normalized)))
-      : documents;
-    return arrangeDocuments(filtered);
+      : decorated;
   }, [documents, search]);
 
   const selectedIDs = useMemo(() => Object.keys(selected).filter((id) => selected[id]), [selected]);
@@ -203,11 +193,17 @@ function App() {
   }
 
   async function loadDocuments() {
+    const limit = Number(documentLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+      setMessage(s.invalidDocumentLimit);
+      return;
+    }
     setDocsLoadState("loading");
     try {
-      const data = await fetchNotionDocuments(configPayload());
+      const data = await fetchNotionDocuments(configPayload(), limit);
       const docs = data.documents || [];
       setDocuments(docs);
+      setDocumentsHasMore(!!data.has_more);
       setDocsLoadState("loaded");
       setSelected({});
       setPreview(null);
@@ -216,6 +212,7 @@ function App() {
       setMessage("");
     } catch (err) {
       setDocsLoadState("idle");
+      setDocumentsHasMore(false);
       handleError(err);
     }
   }
@@ -255,7 +252,10 @@ function App() {
     importInFlight.current = true;
     setImporting(true);
     try {
-      const data = await createImportJob(selectedIDs, configPayload(), {
+      const titleByID = Object.fromEntries(
+        documents.filter((doc) => selected[doc.id]).map((doc) => [doc.id, doc.title || doc.id]),
+      );
+      const data = await createImportJob(selectedIDs, titleByID, configPayload(), {
         strategy,
         visibility,
         worker_count: config.worker_count,
@@ -439,6 +439,8 @@ function App() {
           <DocumentsPanel
             strings={s}
             docsLoadState={docsLoadState}
+            documentLimit={documentLimit}
+            documentsHasMore={documentsHasMore}
             search={search}
             visibleDocuments={visibleDocuments}
             selected={selected}
@@ -452,6 +454,7 @@ function App() {
             anyRunning={anyRunning}
             importDisabled={importDisabled}
             onSearchChange={setSearch}
+            onDocumentLimitChange={setDocumentLimit}
             onLoadDocuments={loadDocuments}
             onStartImport={startImport}
             onLoadPreview={loadPreview}

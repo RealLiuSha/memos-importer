@@ -15,10 +15,11 @@ import (
 )
 
 type createJobRequest struct {
-	Source      string           `json:"source"`
-	ExternalIDs []string         `json:"external_ids"`
-	Options     importer.Options `json:"options"`
-	Config      configPayload    `json:"config"`
+	Source      string            `json:"source"`
+	ExternalIDs []string          `json:"external_ids"`
+	TitleByID   map[string]string `json:"title_by_id,omitempty"`
+	Options     importer.Options  `json:"options"`
+	Config      configPayload     `json:"config"`
 }
 
 type jobActionRequest struct {
@@ -90,7 +91,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		externalIDs = expanded
 	}
 	engine := importer.NewEngine(src, client, s.store, s.broker, req.Options)
-	jobID, err := engine.CreateJob(r.Context(), externalIDs)
+	jobID, err := engine.CreateJob(r.Context(), externalIDs, req.TitleByID)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return

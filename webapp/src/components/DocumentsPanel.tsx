@@ -5,6 +5,8 @@ import type { DisplayDocument, DocumentRef, PreviewResponse } from "../types";
 type DocumentsPanelProps = {
   strings: Strings;
   docsLoadState: "idle" | "loading" | "loaded";
+  documentLimit: string;
+  documentsHasMore: boolean;
   search: string;
   visibleDocuments: DisplayDocument[];
   selected: Record<string, boolean>;
@@ -18,6 +20,7 @@ type DocumentsPanelProps = {
   anyRunning: boolean;
   importDisabled: boolean;
   onSearchChange: (search: string) => void;
+  onDocumentLimitChange: (limit: string) => void;
   onLoadDocuments: () => void;
   onStartImport: () => void;
   onLoadPreview: (id: string) => void;
@@ -27,6 +30,8 @@ type DocumentsPanelProps = {
 export function DocumentsPanel({
   strings,
   docsLoadState,
+  documentLimit,
+  documentsHasMore,
   search,
   visibleDocuments,
   selected,
@@ -40,6 +45,7 @@ export function DocumentsPanel({
   anyRunning,
   importDisabled,
   onSearchChange,
+  onDocumentLimitChange,
   onLoadDocuments,
   onStartImport,
   onLoadPreview,
@@ -49,9 +55,14 @@ export function DocumentsPanel({
     <>
       <div className="toolbar">
         <h2>{strings.docsTitle}</h2>
-        <input data-testid="document-search" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder={strings.searchPlaceholder} />
-        <button data-testid="load-documents" className="secondary" onClick={onLoadDocuments}>{docsLoadState === "loading" ? strings.loadingBtn : strings.loadBtn}</button>
+        <input className="document-search" data-testid="document-search" value={search} onChange={(e) => onSearchChange(e.target.value)} placeholder={strings.searchPlaceholder} />
+        <label className="document-limit">
+          {strings.loadLimitLabel}
+          <input data-testid="document-limit" type="number" min="1" max="1000" value={documentLimit} onChange={(e) => onDocumentLimitChange(e.target.value)} />
+        </label>
+        <button data-testid="load-documents" className="secondary" disabled={docsLoadState === "loading"} onClick={onLoadDocuments}>{docsLoadState === "loading" ? strings.loadingBtn : strings.loadBtn}</button>
         <span className="selection-count">{totalPages ? `${strings.selected} ${selectedPages} / ${totalPages}` : ""}</span>
+        {documentsHasMore && <span className="more-documents">{strings.moreDocuments}</span>}
         <button data-testid="start-import" className={importing ? "loading-button" : ""} aria-busy={importing} disabled={importDisabled} onClick={onStartImport}>{importing || anyRunning ? strings.importingBtn : strings.importBtn}</button>
       </div>
 

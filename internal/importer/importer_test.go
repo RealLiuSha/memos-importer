@@ -14,6 +14,7 @@ import (
 
 	"memos-importer/internal/domain"
 	"memos-importer/internal/memos"
+	"memos-importer/internal/source"
 	"memos-importer/internal/store"
 )
 
@@ -21,16 +22,20 @@ type fakeSource struct {
 	docs        map[string]*domain.Document
 	failures    map[string]error
 	beforeFetch func(ctx context.Context, id string)
+	listCalls   *int
 }
 
 func (f fakeSource) Name() string                     { return "notion" }
 func (f fakeSource) Verify(ctx context.Context) error { return nil }
-func (f fakeSource) ListDocuments(ctx context.Context) ([]domain.DocumentRef, error) {
+func (f fakeSource) ListDocuments(ctx context.Context, options source.ListOptions) (source.DocumentList, error) {
+	if f.listCalls != nil {
+		(*f.listCalls)++
+	}
 	refs := make([]domain.DocumentRef, 0, len(f.docs))
 	for _, doc := range f.docs {
 		refs = append(refs, doc.Ref)
 	}
-	return refs, nil
+	return source.DocumentList{Documents: refs}, nil
 }
 func (f fakeSource) FetchDocument(ctx context.Context, id string) (*domain.Document, error) {
 	if f.beforeFetch != nil {
@@ -115,7 +120,7 @@ func TestImportCreatesMappingAndSkipsDuplicate(t *testing.T) {
 	}
 	fm := &fakeMemos{}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, fm, st, NewBroker(), Options{WorkerCount: 1, Visibility: VisibilityPrivate})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +147,7 @@ func TestImportCreatesMappingAndSkipsDuplicate(t *testing.T) {
 		t.Fatalf("unexpected mapping: %#v", mapping)
 	}
 
-	jobID, err = engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err = engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +184,7 @@ func TestImportSanitizesAttachmentFilename(t *testing.T) {
 	}
 	fm := &fakeMemos{}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, fm, st, NewBroker(), Options{WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,8 +252,9 @@ func TestCreateJobDeduplicatesExternalIDs(t *testing.T) {
 	}
 	defer st.Close()
 	doc := newTestDocument("page-1", "body")
-	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1", " ", "page-1"})
+	listCalls := 0
+	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}, listCalls: &listCalls}, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 1})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1", " ", "page-1"}, map[string]string{"page-1": "Page"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,8 +262,11 @@ func TestCreateJobDeduplicatesExternalIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].ExternalID != "page-1" {
+	if len(items) != 1 || items[0].ExternalID != "page-1" || items[0].Title != "Page" {
 		t.Fatalf("expected one deduplicated item, got %#v", items)
+	}
+	if listCalls != 0 {
+		t.Fatalf("creating a job should not enumerate all source documents, got %d list calls", listCalls)
 	}
 }
 
@@ -269,7 +278,7 @@ func TestCreateJobRejectsInvalidOptions(t *testing.T) {
 	}
 	defer st.Close()
 	engine := NewEngine(fakeSource{}, &fakeMemos{}, st, NewBroker(), Options{Strategy: "merge", WorkerCount: 1})
-	if _, err := engine.CreateJob(ctx, []string{"page-1"}); err == nil || !strings.Contains(err.Error(), "invalid strategy") {
+	if _, err := engine.CreateJob(ctx, []string{"page-1"}, nil); err == nil || !strings.Contains(err.Error(), "invalid strategy") {
 		t.Fatalf("expected invalid strategy error, got %v", err)
 	}
 }
@@ -289,7 +298,7 @@ func TestImportOverwriteChangedMapping(t *testing.T) {
 	}
 	fm := &fakeMemos{}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, fm, st, NewBroker(), Options{Strategy: StrategyOverwrite, WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +327,7 @@ func TestImportOverwriteWhenSourceUpdatedAtAdvancesWithSameHash(t *testing.T) {
 	doc := newTestDocument("page-1", "same body")
 	fm := &fakeMemos{}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, fm, st, NewBroker(), Options{Strategy: StrategyOverwrite, WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +339,7 @@ func TestImportOverwriteWhenSourceUpdatedAtAdvancesWithSameHash(t *testing.T) {
 	}
 	nextUpdatedAt := doc.UpdatedAt.Add(time.Hour)
 	doc.UpdatedAt = nextUpdatedAt
-	jobID, err = engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err = engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +381,7 @@ func TestImportSkipChangedMappingDoesNotUpdateMemo(t *testing.T) {
 	doc := newTestDocument("page-1", "changed body")
 	fm := &fakeMemos{}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, fm, st, NewBroker(), Options{Strategy: StrategySkip, WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +421,7 @@ func TestImportFailureIsolationAndRetry(t *testing.T) {
 	src := fakeSource{docs: docs, failures: map[string]error{"page-fail": errors.New("fetch failed")}}
 	fm := &fakeMemos{}
 	engine := NewEngine(src, fm, st, NewBroker(), Options{WorkerCount: 2})
-	jobID, err := engine.CreateJob(ctx, []string{"page-ok", "page-fail"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-ok", "page-fail"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -462,7 +471,7 @@ func TestImportNilDocumentFailsItem(t *testing.T) {
 	}
 	defer st.Close()
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{}}, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +521,7 @@ func TestImportWorkerCountDoesNotExceedLimit(t *testing.T) {
 		},
 	}
 	engine := NewEngine(src, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 2})
-	jobID, err := engine.CreateJob(ctx, ids)
+	jobID, err := engine.CreateJob(ctx, ids, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +542,7 @@ func TestImportContentLengthAndAttachmentSizeFailures(t *testing.T) {
 	defer st.Close()
 	longDoc := newTestDocument("long", strings.Repeat("x", 32))
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"long": longDoc}}, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 1, ContentLengthLimit: 10})
-	jobID, err := engine.CreateJob(ctx, []string{"long"})
+	jobID, err := engine.CreateJob(ctx, []string{"long"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +566,7 @@ func TestImportContentLengthAndAttachmentSizeFailures(t *testing.T) {
 		},
 	}}
 	engine = NewEngine(fakeSource{docs: map[string]*domain.Document{"big": bigDoc}}, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 1, MaxAttachmentBytes: 4})
-	jobID, err = engine.CreateJob(ctx, []string{"big"})
+	jobID, err = engine.CreateJob(ctx, []string{"big"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +599,7 @@ func TestImportFailsWhenUploadedAttachmentResponseMissingName(t *testing.T) {
 	}}
 	fm := &fakeMemos{attachmentResp: &memos.Attachment{UID: "uid1", Filename: "a.txt", Type: "text/plain", Size: 5}}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": doc}}, fm, st, NewBroker(), Options{WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +633,7 @@ func TestImportFailureRedactsSensitiveError(t *testing.T) {
 	defer st.Close()
 	fm := &fakeMemos{createErr: errors.New(`Authorization: Bearer raw-token token=secret temporary https://user:pass@notion.example/file.png?X-Amz-Signature=secret`)}
 	engine := NewEngine(fakeSource{docs: map[string]*domain.Document{"page-1": newTestDocument("page-1", "body")}}, fm, st, NewBroker(), Options{WorkerCount: 1})
-	jobID, err := engine.CreateJob(ctx, []string{"page-1"})
+	jobID, err := engine.CreateJob(ctx, []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -663,7 +672,7 @@ func TestImportCancelKeepsUnfinishedItemPending(t *testing.T) {
 		},
 	}
 	engine := NewEngine(src, &fakeMemos{}, st, NewBroker(), Options{WorkerCount: 1})
-	jobID, err := engine.CreateJob(context.Background(), []string{"page-1"})
+	jobID, err := engine.CreateJob(context.Background(), []string{"page-1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

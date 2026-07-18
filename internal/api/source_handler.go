@@ -1,15 +1,29 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
 	"memos-importer/internal/config"
 	"memos-importer/internal/importer"
+	"memos-importer/internal/source"
+)
+
+const (
+	defaultNotionDocumentLimit = 100
+	maxNotionDocumentLimit     = 1000
 )
 
 func (s *Server) notionTree(w http.ResponseWriter, r *http.Request) {
+	limit, err := notionDocumentLimit(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
 	cfg, err := s.configFromEnvelopeRequest(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -20,12 +34,28 @@ func (s *Server) notionTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	refs, err := src.ListDocuments(r.Context())
+	list, err := src.ListDocuments(r.Context(), source.ListOptions{Limit: limit})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"documents": refs})
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"documents": list.Documents,
+		"has_more":  list.HasMore,
+	})
+}
+
+func notionDocumentLimit(r *http.Request) (int, error) {
+	values := r.URL.Query()
+	if !values.Has("limit") {
+		return defaultNotionDocumentLimit, nil
+	}
+	value := strings.TrimSpace(values.Get("limit"))
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > maxNotionDocumentLimit {
+		return 0, fmt.Errorf("limit must be an integer between 1 and %d", maxNotionDocumentLimit)
+	}
+	return limit, nil
 }
 
 func (s *Server) previewNotionDocument(w http.ResponseWriter, r *http.Request) {

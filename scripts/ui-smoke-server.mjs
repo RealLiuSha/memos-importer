@@ -196,12 +196,16 @@ async function handleAPI(req, res, url) {
   if (req.method === "POST" && url.pathname === "/api/sources/notion/tree") {
     const body = await readBody(req);
     assertBrowserConfig(body.config, "notion tree");
+    if (url.searchParams.get("limit") !== "3") {
+      throw new Error(`notion tree: expected limit=3, got ${url.search}`);
+    }
     json(res, {
       documents: [
-        { source: "notion", id: "page-1", title: "Smoke Page", kind: "page", updated_at: "2024-01-02T00:00:00Z" },
-        { source: "notion", id: "page-child", title: "Smoke Child", kind: "page", parent_id: "page-1", updated_at: "2024-01-02T12:00:00Z" },
+        { source: "notion", id: "page-1", title: "Smoke Page", kind: "page", updated_at: "2024-01-04T00:00:00Z" },
         { source: "notion", id: "db-1", title: "Smoke Database", kind: "database", updated_at: "2024-01-03T00:00:00Z" },
+        { source: "notion", id: "page-child", title: "Smoke Child", kind: "page", parent_id: "page-1", updated_at: "2024-01-02T00:00:00Z" },
       ],
+      has_more: true,
     });
     return true;
   }
@@ -226,6 +230,10 @@ async function handleAPI(req, res, url) {
     const ids = Array.isArray(body.external_ids) ? body.external_ids : [];
     if (!ids.includes("page-1") || !ids.includes("db-1")) {
       json(res, { error: `expected page and database selection, got ${JSON.stringify(ids)}` }, 400);
+      return true;
+    }
+    if (body.title_by_id?.["page-1"] !== "Smoke Page" || body.title_by_id?.["db-1"] !== "Smoke Database") {
+      json(res, { error: `expected selected document title hints, got ${JSON.stringify(body.title_by_id)}` }, 400);
       return true;
     }
     if (body.options?.worker_count !== 6) {

@@ -8,6 +8,7 @@ import (
 
 	"memos-importer/internal/domain"
 	"memos-importer/internal/memos"
+	"memos-importer/internal/source"
 	"memos-importer/internal/store"
 )
 
@@ -74,16 +75,21 @@ func (f *fakeRuntime) UpdateMemo(ctx context.Context, name string, req memos.Upd
 type fakeAPISource struct {
 	docs        map[string]*domain.Document
 	beforeFetch func(ctx context.Context, id string)
+	listOptions *source.ListOptions
+	listHasMore bool
 }
 
 func (f fakeAPISource) Name() string                     { return "notion" }
 func (f fakeAPISource) Verify(ctx context.Context) error { return nil }
-func (f fakeAPISource) ListDocuments(ctx context.Context) ([]domain.DocumentRef, error) {
+func (f fakeAPISource) ListDocuments(ctx context.Context, options source.ListOptions) (source.DocumentList, error) {
+	if f.listOptions != nil {
+		*f.listOptions = options
+	}
 	refs := make([]domain.DocumentRef, 0, len(f.docs))
 	for _, doc := range f.docs {
 		refs = append(refs, doc.Ref)
 	}
-	return refs, nil
+	return source.DocumentList{Documents: refs, HasMore: f.listHasMore}, nil
 }
 func (f fakeAPISource) FetchDocument(ctx context.Context, id string) (*domain.Document, error) {
 	if f.beforeFetch != nil {

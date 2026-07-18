@@ -3,14 +3,19 @@ package notion
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"memos-importer/internal/domain"
+	"memos-importer/internal/source"
 	"memos-importer/internal/source/notion/converter"
 )
+
+const notionSearchPageSize = 100
 
 type Adapter struct {
 	client             *Client
@@ -76,51 +81,65 @@ func (a *Adapter) Verify(ctx context.Context) error {
 	return err
 }
 
-func (a *Adapter) ListDocuments(ctx context.Context) ([]domain.DocumentRef, error) {
-	var refs []domain.DocumentRef
+func (a *Adapter) ListDocuments(ctx context.Context, options source.ListOptions) (source.DocumentList, error) {
+	if options.Limit <= 0 {
+		return source.DocumentList{}, fmt.Errorf("document limit must be positive")
+	}
+
+	refs := make([]domain.DocumentRef, 0, options.Limit)
 	seen := make(map[string]bool)
-	for _, filter := range []string{"page", "database"} {
-		cursor := ""
-		for {
-			body := map[string]interface{}{
-				"page_size": 100,
-				"filter": map[string]interface{}{
-					"property": "object",
-					"value":    filter,
-				},
-			}
-			if cursor != "" {
-				body["start_cursor"] = cursor
-			}
-			resp, err := a.client.Search(ctx, body)
-			if err != nil {
-				return nil, err
-			}
-			for _, item := range arr(resp["results"]) {
-				m := obj(item)
-				id := str(m["id"])
-				if id == "" || seen[id] {
-					continue
-				}
-				seen[id] = true
-				updatedAt, _ := parseTime(str(m["last_edited_time"]))
-				refs = append(refs, domain.DocumentRef{
-					Source:    "notion",
-					ID:        id,
-					Title:     titleFromObject(m),
-					ParentID:  parentID(m),
-					Kind:      str(m["object"]),
-					UpdatedAt: updatedAt,
-				})
-			}
-			if hasMore(resp) {
-				cursor = str(resp["next_cursor"])
+	cursor := ""
+	hasNext := false
+	for len(refs) < options.Limit {
+		pageSize := options.Limit - len(refs)
+		if pageSize > notionSearchPageSize {
+			pageSize = notionSearchPageSize
+		}
+		body := map[string]interface{}{
+			"page_size": pageSize,
+			"sort": map[string]interface{}{
+				"direction": "descending",
+				"timestamp": "last_edited_time",
+			},
+		}
+		if cursor != "" {
+			body["start_cursor"] = cursor
+		}
+		resp, err := a.client.Search(ctx, body)
+		if err != nil {
+			return source.DocumentList{}, err
+		}
+		for _, item := range arr(resp["results"]) {
+			m := obj(item)
+			id := str(m["id"])
+			if id == "" || seen[id] {
 				continue
 			}
+			seen[id] = true
+			updatedAt, _ := parseTime(str(m["last_edited_time"]))
+			refs = append(refs, domain.DocumentRef{
+				Source:    "notion",
+				ID:        id,
+				Title:     titleFromObject(m),
+				ParentID:  parentID(m),
+				Kind:      str(m["object"]),
+				UpdatedAt: updatedAt,
+			})
+		}
+		hasNext = hasMore(resp)
+		if len(refs) >= options.Limit || !hasNext {
 			break
 		}
+		cursor = str(resp["next_cursor"])
 	}
-	return refs, nil
+
+	sort.SliceStable(refs, func(i, j int) bool {
+		if refs[i].UpdatedAt.Equal(refs[j].UpdatedAt) {
+			return refs[i].ID < refs[j].ID
+		}
+		return refs[i].UpdatedAt.After(refs[j].UpdatedAt)
+	})
+	return source.DocumentList{Documents: refs, HasMore: hasNext}, nil
 }
 
 func (a *Adapter) FetchDocument(ctx context.Context, id string) (*domain.Document, error) {
