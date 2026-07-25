@@ -133,13 +133,76 @@ func (a *Adapter) ListDocuments(ctx context.Context, options source.ListOptions)
 		cursor = str(resp["next_cursor"])
 	}
 
-	sort.SliceStable(refs, func(i, j int) bool {
-		if refs[i].UpdatedAt.Equal(refs[j].UpdatedAt) {
-			return refs[i].ID < refs[j].ID
-		}
-		return refs[i].UpdatedAt.After(refs[j].UpdatedAt)
-	})
+	refs = orderDocumentRefsByHierarchy(refs)
 	return source.DocumentList{Documents: refs, HasMore: hasNext}, nil
+}
+
+func orderDocumentRefsByHierarchy(refs []domain.DocumentRef) []domain.DocumentRef {
+	if len(refs) < 2 {
+		return refs
+	}
+
+	byID := make(map[string]struct{}, len(refs))
+	for _, ref := range refs {
+		byID[ref.ID] = struct{}{}
+	}
+
+	childrenByParent := make(map[string][]domain.DocumentRef)
+	roots := make([]domain.DocumentRef, 0, len(refs))
+	for _, ref := range refs {
+		if _, parentLoaded := byID[ref.ParentID]; ref.ParentID != "" && ref.ParentID != ref.ID && parentLoaded {
+			childrenByParent[ref.ParentID] = append(childrenByParent[ref.ParentID], ref)
+			continue
+		}
+		roots = append(roots, ref)
+	}
+
+	sortGroup := func(group []domain.DocumentRef) {
+		sort.SliceStable(group, func(i, j int) bool {
+			leftContainer := group[i].Kind == "database" || len(childrenByParent[group[i].ID]) > 0
+			rightContainer := group[j].Kind == "database" || len(childrenByParent[group[j].ID]) > 0
+			if leftContainer != rightContainer {
+				return leftContainer
+			}
+			if group[i].UpdatedAt.Equal(group[j].UpdatedAt) {
+				return group[i].ID < group[j].ID
+			}
+			return group[i].UpdatedAt.After(group[j].UpdatedAt)
+		})
+	}
+	sortGroup(roots)
+	for _, children := range childrenByParent {
+		sortGroup(children)
+	}
+
+	ordered := make([]domain.DocumentRef, 0, len(refs))
+	added := make(map[string]bool, len(refs))
+	var appendTree func(domain.DocumentRef)
+	appendTree = func(ref domain.DocumentRef) {
+		if added[ref.ID] {
+			return
+		}
+		added[ref.ID] = true
+		ordered = append(ordered, ref)
+		for _, child := range childrenByParent[ref.ID] {
+			appendTree(child)
+		}
+	}
+	for _, root := range roots {
+		appendTree(root)
+	}
+
+	remaining := make([]domain.DocumentRef, 0)
+	for _, ref := range refs {
+		if !added[ref.ID] {
+			remaining = append(remaining, ref)
+		}
+	}
+	sortGroup(remaining)
+	for _, ref := range remaining {
+		appendTree(ref)
+	}
+	return ordered
 }
 
 func (a *Adapter) FetchDocument(ctx context.Context, id string) (*domain.Document, error) {

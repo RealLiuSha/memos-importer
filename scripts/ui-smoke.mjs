@@ -312,7 +312,7 @@ async function main() {
         const ids = Array.from(document.querySelectorAll('.doc-row input')).map((input) => input.dataset.testid);
         return ids.join(',') === 'doc-page-1,doc-db-1,doc-page-child';
       })()
-    `, "document updated-time order");
+    `, "document hierarchy order");
     await waitFor(cdp, `
       (() => {
         const parent = document.querySelector('[data-testid="doc-page-1"]')?.closest('.doc-row')?.querySelector('.doc-title');

@@ -18,9 +18,11 @@ Hosted instance: <https://memos-importer.liusha.net>
 
 - Save and validate the memos endpoint, memos access token, and Notion integration token
   locally in the browser.
-- Fetch the pages and databases the Notion integration can access, ordered by most recently
-  edited first. The Web console loads 100 documents by default and lets the user choose a
-  different bounded discovery count before picking the import scope.
+- Fetch the pages and databases the Notion integration can access. Within the loaded result,
+  containers precede ordinary sibling documents, parents precede descendants, and otherwise
+  equivalent siblings remain ordered by most recently edited first. The Web console loads 100
+  documents by default and lets the user choose a different bounded discovery count before
+  picking the import scope.
 - Preview a single Notion document's converted Markdown, attachment count, and unsupported
   block warnings.
 - Notion-hosted `image/file/pdf/video` attachments are downloaded first, then uploaded to

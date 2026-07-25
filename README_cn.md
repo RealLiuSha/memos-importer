@@ -11,8 +11,9 @@ memos-importer 是一个自托管的 Notion 到 [memos](https://github.com/useme
 ## 功能
 
 - 支持在浏览器本地保存并校验 memos endpoint、memos access token 和 Notion integration token。
-- 支持拉取 Notion integration 可访问的页面和数据库，按最近编辑时间倒序展示；Web 控制台
-  默认加载 100 篇文档，并允许用户在选择导入范围前调整有上限的加载数量。
+- 支持拉取 Notion integration 可访问的页面和数据库；在加载范围内优先保持目录层级：
+  数据库和含子项的页面先于同层普通文档，父项先于子项，同层同类再按最近编辑时间倒序。
+  Web 控制台默认加载 100 篇文档，并允许用户在选择导入范围前调整有上限的加载数量。
 - 支持预览单篇 Notion 文档转换后的 Markdown、附件数量和 unsupported block warning。
 - Notion 托管的 `image/file/pdf/video` 会先下载，再上传到 memos。
 - 导入后的正文使用 memos `/file/attachments/{uid}/{filename}` 路径，不依赖 Notion 临时文件 URL。

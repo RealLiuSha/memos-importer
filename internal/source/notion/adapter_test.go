@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"memos-importer/internal/domain"
 	"memos-importer/internal/source"
 )
 
@@ -117,6 +118,7 @@ func TestAdapterListDocumentsPaginationAndDatabase(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"results": []interface{}{map[string]interface{}{
 					"id": "page-2", "object": "page", "last_edited_time": "2024-01-04T00:00:00Z",
+					"parent": map[string]interface{}{"type": "page_id", "page_id": "page-1"},
 					"properties": map[string]interface{}{
 						"Name": map[string]interface{}{"type": "title", "title": []interface{}{map[string]interface{}{"plain_text": "Page 2"}}},
 					},
@@ -145,8 +147,29 @@ func TestAdapterListDocumentsPaginationAndDatabase(t *testing.T) {
 		t.Fatalf("expected a limited result with more pages, got %#v calls=%d", list, searchCalls)
 	}
 	refs := list.Documents
-	if refs[0].ID != "page-2" || refs[1].ID != "db-1" || refs[2].ID != "page-1" || refs[1].Kind != "database" {
-		t.Fatalf("documents were not sorted by updated_at descending: %#v", refs)
+	if refs[0].ID != "db-1" || refs[1].ID != "page-1" || refs[2].ID != "page-2" || refs[0].Kind != "database" {
+		t.Fatalf("containers and parents were not ordered before documents: %#v", refs)
+	}
+}
+
+func TestOrderDocumentRefsByHierarchyPrioritizesContainersAndPreservesTree(t *testing.T) {
+	base := time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC)
+	refs := []domain.DocumentRef{
+		{ID: "root-page", Kind: "page", UpdatedAt: base.Add(6 * time.Hour)},
+		{ID: "folder-child-new", ParentID: "folder", Kind: "page", UpdatedAt: base.Add(5 * time.Hour)},
+		{ID: "database-child", ParentID: "database", Kind: "page", UpdatedAt: base.Add(4 * time.Hour)},
+		{ID: "folder-child-old", ParentID: "folder", Kind: "page", UpdatedAt: base.Add(3 * time.Hour)},
+		{ID: "database", Kind: "database", UpdatedAt: base.Add(2 * time.Hour)},
+		{ID: "folder", Kind: "page", UpdatedAt: base.Add(time.Hour)},
+	}
+
+	ordered := orderDocumentRefsByHierarchy(refs)
+	ids := make([]string, 0, len(ordered))
+	for _, ref := range ordered {
+		ids = append(ids, ref.ID)
+	}
+	if got, want := fmt.Sprint(ids), "[database database-child folder folder-child-new folder-child-old root-page]"; got != want {
+		t.Fatalf("unexpected hierarchy order: got %s want %s", got, want)
 	}
 }
 

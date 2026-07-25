@@ -201,9 +201,9 @@ async function handleAPI(req, res, url) {
     }
     json(res, {
       documents: [
-        { source: "notion", id: "page-1", title: "Smoke Page", kind: "page", updated_at: "2024-01-04T00:00:00Z" },
-        { source: "notion", id: "db-1", title: "Smoke Database", kind: "database", updated_at: "2024-01-03T00:00:00Z" },
-        { source: "notion", id: "page-child", title: "Smoke Child", kind: "page", parent_id: "page-1", updated_at: "2024-01-02T00:00:00Z" },
+        { source: "notion", id: "page-1", title: "Smoke Page", kind: "page", updated_at: "2024-01-01T00:00:00Z" },
+        { source: "notion", id: "db-1", title: "Smoke Database", kind: "database", parent_id: "page-1", updated_at: "2024-01-03T00:00:00Z" },
+        { source: "notion", id: "page-child", title: "Smoke Child", kind: "page", parent_id: "page-1", updated_at: "2024-01-04T00:00:00Z" },
       ],
       has_more: true,
     });
